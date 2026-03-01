@@ -1260,8 +1260,9 @@ function generateBassPattern() {
       const degree = i === 0 ? 0 : (i === Math.floor(len/2) ? 4 : -1);
       bassPattern.push(degree);
     } else if (c === 2) {
-      const degrees = [0, 2, 4, 0, 3, 4];
-      bassPattern.push(degrees[i % degrees.length]);
+      // Root on beat 1, fifth on beat 3, rests elsewhere — simple but not static
+      const degree = i === 0 ? 0 : (i === Math.floor(len / 2) ? 4 : (i === len - 1 ? 0 : -1));
+      bassPattern.push(degree);
     } else {
       const degrees = [0, 4, 2, 6, 1, 5, 3, 4];
       bassPattern.push(degrees[i % degrees.length]);

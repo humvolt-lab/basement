@@ -648,7 +648,6 @@
         </svg>
       </div>
       <div class="musician-info">
-        <div class="musician-name">DRUMS</div>
         <div class="musician-status" id="status-drums">— OFFLINE —</div>
       </div>
       <div class="complexity-group">
@@ -681,7 +680,6 @@
         </svg>
       </div>
       <div class="musician-info">
-        <div class="musician-name">BASS</div>
         <div class="musician-status" id="status-bass">— OFFLINE —</div>
       </div>
       <div class="complexity-group">
@@ -713,7 +711,6 @@
         </svg>
       </div>
       <div class="musician-info">
-        <div class="musician-name">KEYS</div>
         <div class="musician-status" id="status-keys">— OFFLINE —</div>
       </div>
       <div class="complexity-group">
@@ -749,7 +746,6 @@
         </svg>
       </div>
       <div class="musician-info">
-        <div class="musician-name">DIGGER</div>
         <div class="musician-status" id="status-digger">— OFFLINE —</div>
       </div>
       <div class="complexity-group">
@@ -877,13 +873,66 @@ async function initAudio() {
   reverbWet.connect(masterGain);
   masterGain.connect(ctx.destination);
 
-  // Analysers per musician
+  // Per-channel compressors — tuned per instrument, sit between analyser and lofi bus
+  // Each compressor normalises the channel regardless of synth param variation
+  const channelCompSettings = {
+    //           threshold  knee  ratio  attack   release
+    drums:  {    threshold:-18,  knee:6, ratio:4,  attack:0.003, release:0.15 },
+    bass:   {    threshold:-20,  knee:8, ratio:5,  attack:0.008, release:0.20 },
+    keys:   {    threshold:-22,  knee:8, ratio:4,  attack:0.010, release:0.25 },
+    digger: {    threshold:-24,  knee:10,ratio:3,  attack:0.020, release:0.40 },
+  };
+
+  // Fixed output gain per channel after compression — keeps each instrument
+  // in its lane in the mix regardless of how wild the synth params get
+  const channelTargetGain = {
+    drums:  0.72,
+    bass:   0.68,
+    keys:   0.55,
+    digger: 0.50,
+  };
+
+  const channelCompressors = {};
+
   ['drums','bass','keys','digger'].forEach(m => {
     const a = ctx.createAnalyser();
     a.fftSize = 256;
-    a.connect(lofiFilter);
+
+    // Compressor
+    const comp = ctx.createDynamicsCompressor();
+    const cfg  = channelCompSettings[m];
+    comp.threshold.value = cfg.threshold;
+    comp.knee.value      = cfg.knee;
+    comp.ratio.value     = cfg.ratio;
+    comp.attack.value    = cfg.attack;
+    comp.release.value   = cfg.release;
+
+    // Post-comp trim gain — sets the channel level in the mix
+    const trim = ctx.createGain();
+    trim.gain.value = channelTargetGain[m];
+
+    // Route: analyser → compressor → trim → lofiFilter
+    a.connect(comp);
+    comp.connect(trim);
+    trim.connect(lofiFilter);
+
     analyserNodes[m] = a;
+    channelCompressors[m] = comp; // expose for debugging if needed
   });
+
+  // Master bus compressor — gentle glue, not limiting
+  const masterComp = ctx.createDynamicsCompressor();
+  masterComp.threshold.value = -12;
+  masterComp.knee.value      = 10;
+  masterComp.ratio.value     = 2.5;
+  masterComp.attack.value    = 0.005;
+  masterComp.release.value   = 0.30;
+
+  // Re-wire master: lofi → reverb paths → masterComp → masterGain → destination
+  // (need to break the direct masterGain→destination and insert comp)
+  masterGain.disconnect();
+  masterGain.connect(masterComp);
+  masterComp.connect(ctx.destination);
 
   document.getElementById('splash').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1071,7 +1120,7 @@ function scheduleDrums(beat, t, bd) {
 
   // Map beat to pattern position (support non-4/4)
   const pos = beat % kickPat.length;
-  if (kickPat[pos]) make808Kick(t, 0.85);
+  if (kickPat[pos]) make808Kick(t, 0.70);
 
   // Snare on 2 and 4 (in 4/4) or adjusted
   const snareBeats = [2, bpm-1];
@@ -1271,7 +1320,7 @@ function scheduleBass(beat, t, bd) {
     const midi = Math.max(28, isFinite(raw) ? raw : 36);
     const freq = midiToFreq(midi);
     if (!isFinite(freq) || freq <= 0) return;
-    makeDoubleSaw(midi, t, bd * 0.85);
+    makeDoubleSaw(midi, t, bd * 0.85, 0.30); // lower input — channel comp + trim sets level
   } catch(e) {
     console.warn('scheduleBass error:', e.message);
   }
@@ -1352,7 +1401,7 @@ function scheduleKeys(beat, t, bd) {
   chord.forEach((deg, i) => {
     const oct = i >= 3 ? 2 : (i >= 1 ? 2 : 2);
     const midi = noteInScale(oct, deg);
-    makeRhodes(midi, t + i * 0.015, bd, 0.2 - i * 0.02);
+    makeRhodes(midi, t + i * 0.015, bd, 0.13 - i * 0.015); // scaled — channel comp handles level
   });
 }
 

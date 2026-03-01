@@ -804,29 +804,58 @@ const MODES = {
 let SCALE_INTERVALS = MODES.minor;
 state.mode = 'minor';
 
+// Pending key/mode change — applied at next measure boundary by the scheduler
+let pendingKey  = null; // { semitone }
+let pendingMode = null; // { mode }
+
 function setKey(semitone) {
-  state.key = semitone;
+  pendingKey = { semitone };
+  // Update UI immediately so button feels responsive
   document.querySelectorAll('.key-btn').forEach((b, i) => {
     b.classList.toggle('active', i === semitone);
   });
-  generateBassPattern();
-  generateKeysPattern();
+  // Show meander status on playing melodic musicians
+  ['bass','keys'].forEach(m => {
+    if (state.musicians[m].playing) setStatus(m, '~ FINDING KEY...');
+  });
 }
 
 function setMode(mode) {
-  state.mode = mode;
-  SCALE_INTERVALS = MODES[mode];
+  pendingMode = { mode };
+  const map = { minor:'MIN', major:'MAJ', dorian:'DOR', phrygian:'PHR', mixolydian:'MIX' };
   document.querySelectorAll('.mode-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent.toLowerCase() === mode.slice(0,3).toLowerCase() ||
-      (mode === 'minor' && b.textContent === 'MIN') ||
-      (mode === 'major' && b.textContent === 'MAJ') ||
-      (mode === 'dorian' && b.textContent === 'DOR') ||
-      (mode === 'phrygian' && b.textContent === 'PHR') ||
-      (mode === 'mixolydian' && b.textContent === 'MIX')
-    );
+    b.classList.toggle('active', b.textContent === map[mode]);
   });
-  generateBassPattern();
-  generateKeysPattern();
+  ['bass','keys'].forEach(m => {
+    if (state.musicians[m].playing) setStatus(m, '~ DRIFTING...');
+  });
+}
+
+// Called by scheduler at beat 0 (measure boundary) — applies any pending changes
+function applyPendingKeyChange() {
+  let changed = false;
+  if (pendingKey !== null) {
+    state.key = pendingKey.semitone;
+    pendingKey = null;
+    changed = true;
+  }
+  if (pendingMode !== null) {
+    state.mode = pendingMode.mode;
+    SCALE_INTERVALS = MODES[pendingMode.mode];
+    pendingMode = null;
+    changed = true;
+  }
+  if (changed) {
+    generateBassPattern();
+    generateKeysPattern();
+    // Restore locked status after brief delay
+    setTimeout(() => {
+      ['bass','keys'].forEach(m => {
+        if (state.musicians[m].playing && state.musicians[m].state === 'locked')
+          setStatus(m, getLockedStatus(m));
+      });
+    }, 600);
+  }
 }
 
 function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
@@ -1000,6 +1029,9 @@ function scheduleTick() {
       const beat = currentBeat % beatsPerMeasure();
       const swing = (currentBeat % 2 === 1) ? (state.swing - 0.5) * bd * 0.4 : 0;
       const t = nextBeatTime + swing;
+
+      // Apply queued key/mode changes at measure boundary so musicians meander in
+      if (beat === 0) applyPendingKeyChange();
 
       if (state.musicians.drums.playing && state.musicians.drums.state === 'locked') {
         scheduleDrums(beat, t, bd);
@@ -1898,9 +1930,9 @@ const instrParams = {
     filterMult:  4,     // cabinet cutoff as multiple of fundamental (unused now, kept for compat)
     attackTime:  0.010, // 0.005–0.06
     decayShape:  0.78,
-    drive:       4.5,   // 1–8  — preamp stage gain (tanh saturation)
-    driveAmount: 110,   // 20–180 — power amp stage clip intensity
-    midBoost:    9,     // 2–16 dB — growl zone boost
+    drive:       2.5,   // 1–8  — preamp stage gain (tanh saturation)
+    driveAmount: 55,    // 20–180 — power amp stage clip intensity
+    midBoost:    6,     // 2–16 dB — growl zone boost
   },
   keys: {
     modRatio:    7,     // 1–14     — FM modulator harmonic
@@ -1992,11 +2024,11 @@ function tweakSound(m) {
     instrParams.drums.distAmount  = r(10, 180);
     statusMsg = 'DIALED IN';
   } else if (m === 'bass') {
-    instrParams.bass.detune       = r(2, 24);
-    instrParams.bass.attackTime   = r(0.005, 0.05);
-    instrParams.bass.drive        = r(2, 8);
-    instrParams.bass.driveAmount  = r(40, 180);
-    instrParams.bass.midBoost     = r(4, 16);
+    instrParams.bass.detune       = r(2, 20);
+    instrParams.bass.attackTime   = r(0.005, 0.04);
+    instrParams.bass.drive        = r(1.5, 5.5);   // capped — avoids fully blown out
+    instrParams.bass.driveAmount  = r(25, 110);     // capped — stays musical
+    instrParams.bass.midBoost     = r(3, 11);
     statusMsg = 'REPATCHED';
   } else if (m === 'keys') {
     instrParams.keys.modRatio     = ri(1, 13);

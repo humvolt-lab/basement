@@ -1274,9 +1274,10 @@ function generateBassPattern() {
 // Build asymmetric tube-style waveshaper curve
 // positive side clips softer (even harmonics), negative harder (odd harmonics)
 // Stage 1: soft asymmetric clip — preamp warmth, even harmonics
-// Moog-style resonant bass
-// Signal chain: osc (saw) + sub (sine) → ampEnv → filter (resonant LP w/ env) → out
-function makeMoogBass(midi, t, dur, gain = 0.35) {
+// Plucked sub bass
+// A pitched click/thump at attack + sine body that decays quickly — 808/trap sub feel
+// Signal chain: click (noise burst) + sine → ampEnv → HP (clean sub) → out
+function makePluckedSub(midi, t, dur, gain = 0.5) {
   try {
     const dest = analyserNodes.bass;
     const p    = instrParams.bass;
@@ -1285,67 +1286,76 @@ function makeMoogBass(midi, t, dur, gain = 0.35) {
     const freq  = Math.max(30, rawFreq);
     const safeT = Math.max(t, ctx.currentTime + 0.005);
     const maxF  = (ctx.sampleRate / 2) * 0.9;
-    const stopT = safeT + dur + 0.15;
 
-    // --- OSCILLATORS ---
-    // Main: sawtooth — rich in harmonics, the filter will shape them
-    const saw = ctx.createOscillator();
-    saw.type = 'sawtooth';
-    saw.frequency.value = Math.min(freq, maxF);
-
-    // Sub: sine one octave down — pure weight under the filter
-    const sub = ctx.createOscillator();
-    sub.type = 'sine';
-    sub.frequency.value = Math.min(freq * 0.5, maxF);
-
-    const sawGain = ctx.createGain(); sawGain.gain.value = 0.7;
-    const subGain = ctx.createGain(); subGain.gain.value = p.subLevel;
-
-    saw.connect(sawGain);
-    sub.connect(subGain);
-
-    // --- AMPLITUDE ENVELOPE ---
-    const ampEnv = ctx.createGain();
-    sawGain.connect(ampEnv);
-    subGain.connect(ampEnv);
-
-    // --- RESONANT LOWPASS FILTER (the Moog character) ---
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.Q.value = p.resonance;   // 1–20 — higher = more resonant/honky
-
-    // Filter envelope: starts at cutoffPeak, sweeps down to cutoffFloor
-    // This is the "wah" sweep that defines the Moog bass sound
-    const cutoffPeak  = Math.min(freq * p.envAmount, maxF);  // bright at attack
-    const cutoffFloor = Math.min(freq * p.cutoffMult, maxF); // settled tone
-    const envDecay    = safeT + p.envDecay;
-
-    filt.frequency.setValueAtTime(cutoffPeak,  safeT);
-    filt.frequency.exponentialRampToValueAtTime(
-      Math.max(cutoffFloor, 30), envDecay
+    // --- PITCH ENVELOPE on the sine ---
+    // Starts sharp (1.5–3x freq) and falls to target in ~30ms — the "thump"
+    const body = ctx.createOscillator();
+    body.type = 'sine';
+    body.frequency.setValueAtTime(Math.min(freq * p.pitchEnvAmount, maxF), safeT);
+    body.frequency.exponentialRampToValueAtTime(
+      Math.max(freq, 20), safeT + p.pitchDecay
     );
 
-    ampEnv.connect(filt);
+    // Harmonic layer — quiet triangle an octave up, just enough to hear pitch on small speakers
+    const harm = ctx.createOscillator();
+    harm.type = 'triangle';
+    harm.frequency.value = Math.min(freq * 2, maxF);
+    const harmGain = ctx.createGain();
+    harmGain.gain.value = p.harmLevel;  // 0 = pure sub, 0.3 = some definition
 
-    // --- OUTPUT ---
-    const outGain = ctx.createGain();
-    outGain.gain.value = 0.55;
-    filt.connect(outGain);
-    outGain.connect(dest);
+    // --- CLICK --- very short noise burst at onset, gives the "pluck" transient
+    const clickDur = 0.018;
+    const clickBuf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * clickDur), ctx.sampleRate);
+    const cd = clickBuf.getChannelData(0);
+    for (let i = 0; i < cd.length; i++) {
+      // Shaped noise — loud at start, tails off
+      cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / cd.length, 3);
+    }
+    const click = ctx.createBufferSource();
+    click.buffer = clickBuf;
+    const clickFilt = ctx.createBiquadFilter();
+    clickFilt.type = 'bandpass';
+    clickFilt.frequency.value = Math.min(freq * 3, 800); // pitched click
+    clickFilt.Q.value = 0.8;
+    const clickGain = ctx.createGain();
+    clickGain.gain.value = p.clickLevel;
+
+    click.connect(clickFilt);
+    clickFilt.connect(clickGain);
 
     // --- AMP ENVELOPE ---
+    const ampEnv = ctx.createGain();
+    body.connect(ampEnv);
+    harm.connect(harmGain);
+    harmGain.connect(ampEnv);
+    clickGain.connect(ampEnv);
+
+    // Clean HP at 30Hz — keeps the sub tight, avoids speaker-killing DC
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 30;
+    hp.Q.value = 0.5;
+    ampEnv.connect(hp);
+
+    const outGain = ctx.createGain();
+    outGain.gain.value = 0.7;
+    hp.connect(outGain);
+    outGain.connect(dest);
+
+    // Amp envelope — fast attack, exponential decay, no sustain (it's a pluck)
+    const noteLen = Math.min(dur, p.decayTime); // note length capped by decay param
     const t1 = safeT;
-    const t2 = safeT + p.attackTime;
-    const t3 = safeT + Math.max(dur * 0.80, 0.05);
-    const t4 = safeT + Math.max(dur, 0.08);
+    const t2 = safeT + 0.006;          // near-instant attack
+    const t4 = safeT + Math.max(noteLen, 0.08);
 
     ampEnv.gain.cancelScheduledValues(t1);
     ampEnv.gain.setValueAtTime(0.0001, t1);
-    ampEnv.gain.linearRampToValueAtTime(gain, t2);  // linear attack = punchy
-    ampEnv.gain.setValueAtTime(gain,   t3);
+    ampEnv.gain.linearRampToValueAtTime(gain, t2);
     ampEnv.gain.exponentialRampToValueAtTime(0.0001, t4);
 
-    [saw, sub].forEach(o => { o.start(safeT); o.stop(stopT); });
+    body.start(safeT); body.stop(safeT + noteLen + 0.05);
+    harm.start(safeT); harm.stop(safeT + noteLen + 0.05);
+    click.start(safeT); click.stop(safeT + clickDur + 0.01);
 
   } catch(e) {
     console.warn('Bass synth error:', e.message);
@@ -1361,7 +1371,7 @@ function scheduleBass(beat, t, bd) {
     const midi = Math.max(28, isFinite(raw) ? raw : 36);
     const freq = midiToFreq(midi);
     if (!isFinite(freq) || freq <= 0) return;
-    makeMoogBass(midi, t, bd * 0.85);
+    makePluckedSub(midi, t, bd);
   } catch(e) {
     console.warn('scheduleBass error:', e.message);
   }
@@ -1935,12 +1945,11 @@ const instrParams = {
     distAmount:  50,    // 10–200   — waveshaper drive
   },
   bass: {
-    attackTime:  0.012, // 0.005–0.04  — amp attack (shorter = punchier)
-    resonance:   4.5,   // 1–18        — filter Q (higher = more honky/Moog)
-    envAmount:   8,     // 2–20        — filter peak as multiple of freq
-    cutoffMult:  2.2,   // 1–5         — settled filter cutoff as multiple of freq
-    envDecay:    0.18,  // 0.04–0.5    — how fast filter sweeps down
-    subLevel:    0.45,  // 0–0.8       — sub sine octave-down level
+    pitchEnvAmount: 2.2,  // 1.2–4    — pitch peak as multiple of target (the thump)
+    pitchDecay:     0.04, // 0.01–0.12 — how fast pitch falls to note
+    harmLevel:      0.15, // 0–0.4    — harmonic definition (0 = pure sub)
+    clickLevel:     0.6,  // 0.1–1.2  — pluck transient loudness
+    decayTime:      0.55, // 0.1–1.2  — note length / tail
   },
   keys: {
     modRatio:    7,     // 1–14     — FM modulator harmonic
@@ -2032,12 +2041,11 @@ function tweakSound(m) {
     instrParams.drums.distAmount  = r(10, 180);
     statusMsg = 'DIALED IN';
   } else if (m === 'bass') {
-    instrParams.bass.attackTime  = r(0.005, 0.035);
-    instrParams.bass.resonance   = r(1.5, 16);    // low = clean, high = honky
-    instrParams.bass.envAmount   = r(3, 18);       // wide sweep or tight
-    instrParams.bass.cutoffMult  = r(1.2, 4.5);
-    instrParams.bass.envDecay    = r(0.04, 0.45);  // snappy or slow bloom
-    instrParams.bass.subLevel    = r(0.1, 0.7);
+    instrParams.bass.pitchEnvAmount = r(1.3, 3.5);  // subtle thump to big drop
+    instrParams.bass.pitchDecay     = r(0.01, 0.10);
+    instrParams.bass.harmLevel      = r(0, 0.35);    // pure sub → defined tone
+    instrParams.bass.clickLevel     = r(0.2, 1.1);   // soft pluck → hard attack
+    instrParams.bass.decayTime      = r(0.15, 1.0);  // staccato → sustained
     statusMsg = 'REPATCHED';
   } else if (m === 'keys') {
     instrParams.keys.modRatio     = ri(1, 13);

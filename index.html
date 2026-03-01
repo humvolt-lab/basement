@@ -1243,16 +1243,21 @@ function scheduleKeys(beat, t, bd) {
 // ============================================================
 
 const WIKI_CRATE = [
-  { label: 'CITY SUNDAY',  url: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Sunday_in_the_city_street_noise3.ogg' },
-  { label: 'CAMPFIRE',     url: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Campfire_sound_ambience.ogg' },
-  { label: 'RESTAURANT',   url: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Restaurant_ambience.ogg' },
-  { label: 'SHOWER',       url: 'https://upload.wikimedia.org/wikipedia/commons/a/a8/Shower_Sound_Ambience.ogg' },
-  { label: 'DAWN BIRDS',   url: 'https://upload.wikimedia.org/wikipedia/commons/0/0a/20090610_0_ambience.ogg' },
-  { label: 'WINDY WOODS',  url: 'https://upload.wikimedia.org/wikipedia/commons/a/a3/Bourne_woods_windy_2020-05-05_0757.mp3' },
-  { label: 'RAIN WOODS',   url: 'https://upload.wikimedia.org/wikipedia/commons/e/ec/Bourne_woods_rain_2020-05-10_0804.mp3' },
-  { label: 'GALLERIA',     url: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Chris_Zabriskie_-_05_-_The_49th_Street_Galleria.ogg' },
-  { label: 'DIVIDER',      url: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Chris_Zabriskie_-_06_-_Divider.ogg' },
-  { label: 'CYLINDER SIX', url: 'https://upload.wikimedia.org/wikipedia/commons/c/cd/Chris_Zabriskie_-_06_-_Cylinder_Six.ogg' },
+  // Chris Zabriskie - Cylinders (CC BY 4.0)
+  { label: 'CYL ONE',     url: 'https://upload.wikimedia.org/wikipedia/commons/d/da/Chris_Zabriskie_-_01_-_Cylinder_One.ogg' },
+  { label: 'CYL TWO',     url: 'https://upload.wikimedia.org/wikipedia/commons/1/1d/Chris_Zabriskie_-_02_-_Cylinder_Two.ogg' },
+  { label: 'CYL THREE',   url: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Chris_Zabriskie_-_03_-_Cylinder_Three.ogg' },
+  { label: 'CYL FOUR',    url: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Chris_Zabriskie_-_04_-_Cylinder_Four.ogg' },
+  { label: 'CYL FIVE',    url: 'https://upload.wikimedia.org/wikipedia/commons/4/44/Chris_Zabriskie_-_05_-_Cylinder_Five.ogg' },
+  // Pre-1928 jazz & blues (public domain)
+  { label: 'KROOKED',     url: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/King_Oliver%27s_Creole_Jazz_Band--_%22Krooked_Blues%22_%281923%29.ogg' },
+  { label: 'JAZZ ME',     url: 'https://upload.wikimedia.org/wikipedia/commons/6/62/OriginalDixielandJassBand-JazzMeBlues.ogg' },
+  { label: 'LIVERY',      url: 'https://upload.wikimedia.org/wikipedia/commons/1/19/Original_Dixieland_Jass_Band_-_Livery_Stable_Blues_%281917%29_with_hiss_reduction.ogg' },
+  { label: 'ST LOUIS',    url: 'https://upload.wikimedia.org/wikipedia/commons/a/a6/OriginalDixielandJazzBandwithAlBernard_StLouisBlues.ogg' },
+  { label: 'SHAKE IT',    url: 'https://upload.wikimedia.org/wikipedia/commons/0/02/%22Shake_That_Thing%22%2C_by_Papa_Charlie_Jackson_%281925%2C_Ragtime_piano%29.oga' },
+  { label: 'DREAM BLUES', url: 'https://upload.wikimedia.org/wikipedia/commons/1/10/%22Dreaming_Blues%22_%28Edythe_Baker%2C_1920%29_blues_piano_roll_played_by_composer_Edythe_Baker.oga' },
+  { label: 'BLUIN KEYS',  url: 'https://upload.wikimedia.org/wikipedia/commons/d/d8/%22Bluin%27_the_Black_Keys%22_%281926%29%2C_by_Arthur_Schutt.oga' },
+  { label: 'ARABIA',      url: 'https://upload.wikimedia.org/wikipedia/commons/a/a7/Aldahre_Kata_Awsali_%28c._1914%29.ogg' },
 ];
 
 let diggerInterval    = null;
@@ -1261,6 +1266,133 @@ let currentDiggerNode = null;
 let diggerMode        = 'synth';
 let currentWikiIdx    = -1;
 let diggerFetchAbort  = null;
+
+// ---- DIGGER EFFECTS CHAIN ----
+let diggerFxChain = null;
+
+const FX_PRESETS = [
+  { name: 'CLEAN',      delay: false, gate: false, crush: false, duck: false, lofi: false },
+  { name: 'TAPE DELAY', delay: true,  gate: false, crush: false, duck: false, lofi: true  },
+  { name: 'TEMPO GATE', delay: false, gate: true,  crush: false, duck: false, lofi: false },
+  { name: 'BIT CRUSH',  delay: false, gate: false, crush: true,  duck: false, lofi: false },
+  { name: 'DUCKED',     delay: false, gate: false, crush: false, duck: true,  lofi: false },
+  { name: 'MANGLED',    delay: true,  gate: true,  crush: true,  duck: false, lofi: true  },
+  { name: 'GHOST',      delay: true,  gate: true,  crush: false, duck: true,  lofi: true  },
+  { name: 'CRUSHER',    delay: false, gate: false, crush: true,  duck: true,  lofi: true  },
+];
+let currentFxPreset = 0;
+
+function teardownFxChain() {
+  if (!diggerFxChain) return;
+  try { diggerFxChain.nodes.forEach(n => { try { n.disconnect(); } catch(e){} }); } catch(e) {}
+  if (diggerFxChain.gateTimer) clearInterval(diggerFxChain.gateTimer);
+  if (diggerFxChain.duckTimer) clearInterval(diggerFxChain.duckTimer);
+  diggerFxChain = null;
+}
+
+function buildFxChain(presetIdx) {
+  teardownFxChain();
+  if (!ctx || !diggerGain) return null;
+  const preset = FX_PRESETS[presetIdx % FX_PRESETS.length];
+  const nodes = [];
+  const bps = 60 / state.tempo;
+
+  const fxIn = ctx.createGain(); fxIn.gain.value = 1; nodes.push(fxIn);
+  let current = fxIn;
+
+  // BIT CRUSHER
+  if (preset.crush) {
+    const crushNode = ctx.createWaveShaper();
+    const bits = 4 + Math.floor(Math.random() * 4);
+    const steps = Math.pow(2, bits);
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { const x = (i/127.5)-1; curve[i] = Math.round(x*steps)/steps; }
+    crushNode.curve = curve;
+    current.connect(crushNode); current = crushNode; nodes.push(crushNode);
+  }
+
+  // TEMPO DELAY
+  if (preset.delay) {
+    const delayTime = bps * (Math.random() < 0.5 ? 0.5 : 0.75);
+    const delayNode = ctx.createDelay(2.0); delayNode.delayTime.value = delayTime;
+    const delayFb   = ctx.createGain(); delayFb.gain.value = 0.35 + Math.random()*0.25;
+    const delayWet  = ctx.createGain(); delayWet.gain.value = 0.45;
+    const delayDry  = ctx.createGain(); delayDry.gain.value = 0.7;
+    const delayLP   = ctx.createBiquadFilter(); delayLP.type='lowpass'; delayLP.frequency.value=3000;
+    const delaySum  = ctx.createGain(); delaySum.gain.value = 1;
+    current.connect(delayDry); current.connect(delayNode);
+    delayNode.connect(delayLP); delayLP.connect(delayFb); delayFb.connect(delayNode);
+    delayNode.connect(delayWet); delayDry.connect(delaySum); delayWet.connect(delaySum);
+    nodes.push(delayNode, delayFb, delayWet, delayDry, delayLP, delaySum);
+    current = delaySum;
+  }
+
+  // TEMPO GATE
+  let gateTimer = null;
+  if (preset.gate) {
+    const gateNode = ctx.createGain(); gateNode.gain.value = 1;
+    const gatePat = Math.random()<0.5 ? [1,0,1,0,1,0,1,0] : [1,1,0,1,1,0,0,1];
+    let gateStep = 0;
+    gateTimer = setInterval(() => {
+      if (!gateNode||!ctx) return;
+      const on = gatePat[gateStep % gatePat.length];
+      const t = ctx.currentTime;
+      gateNode.gain.cancelScheduledValues(t);
+      gateNode.gain.setValueAtTime(gateNode.gain.value, t);
+      gateNode.gain.linearRampToValueAtTime(on ? 1 : 0.02, t + 0.005);
+      gateStep++;
+    }, (bps/2)*1000);
+    current.connect(gateNode); current = gateNode; nodes.push(gateNode);
+  }
+
+  // DRUM DUCKING
+  let duckTimer = null;
+  if (preset.duck) {
+    const duckNode = ctx.createGain(); duckNode.gain.value = 1;
+    duckTimer = setInterval(() => {
+      if (!duckNode||!ctx||!analyserNodes.drums) return;
+      const data = new Uint8Array(analyserNodes.drums.frequencyBinCount);
+      analyserNodes.drums.getByteTimeDomainData(data);
+      let rms = 0;
+      for (let i=0;i<data.length;i++){const s=(data[i]-128)/128;rms+=s*s;}
+      rms = Math.sqrt(rms/data.length);
+      const reduction = Math.max(0.08, 1 - rms*6);
+      const t = ctx.currentTime;
+      duckNode.gain.cancelScheduledValues(t);
+      duckNode.gain.setValueAtTime(duckNode.gain.value, t);
+      duckNode.gain.linearRampToValueAtTime(reduction, t+0.015);
+      duckNode.gain.linearRampToValueAtTime(1, t+0.1);
+    }, 20);
+    current.connect(duckNode); current = duckNode; nodes.push(duckNode);
+  }
+
+  // LO-FI TELEPHONE
+  if (preset.lofi) {
+    const loHP = ctx.createBiquadFilter(); loHP.type='highpass'; loHP.frequency.value=300+Math.random()*500;
+    const loLP = ctx.createBiquadFilter(); loLP.type='lowpass';  loLP.frequency.value=2000+Math.random()*2000;
+    current.connect(loHP); loHP.connect(loLP); current = loLP;
+    nodes.push(loHP, loLP);
+  }
+
+  current.connect(diggerGain);
+  diggerFxChain = { nodes, gateTimer, duckTimer, preset: preset.name, fxIn };
+  return fxIn;
+}
+
+function getDiggerDest() {
+  return (diggerFxChain && diggerFxChain.fxIn) ? diggerFxChain.fxIn : (diggerGain || analyserNodes.digger);
+}
+
+function reinterpretDiggerFx() {
+  let next = 1 + Math.floor(Math.random() * (FX_PRESETS.length - 1));
+  currentFxPreset = next;
+  const entry = buildFxChain(currentFxPreset);
+  if (currentDiggerNode && entry) {
+    try { currentDiggerNode.disconnect(); } catch(e) {}
+    currentDiggerNode.connect(entry);
+  }
+  return FX_PRESETS[currentFxPreset].name;
+}
 
 // ---- WIKIMEDIA FETCH + DECODE ----
 
@@ -1293,15 +1425,11 @@ async function tryFetchWikiRecord(idx) {
 
     const src = ctx.createBufferSource();
     src.buffer = audioBuf;
-    src.loop = true; // loop so it plays continuously
+    src.loop = true;
 
-    // Route through filter → diggerGain → analyser
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = instrParams.digger.filterFreq * 2;
-    filt.Q.value = instrParams.digger.filterQ;
-    src.connect(filt);
-    filt.connect(diggerGain);
+    // Route through fx chain (or direct to diggerGain if no fx)
+    const dest = getDiggerDest();
+    src.connect(dest);
 
     // Fade in
     const targetVol = 0.15 + state.musicians.digger.complexity * 0.07;
@@ -1417,7 +1545,7 @@ function makeWindTexture(dest, dur) {
 
 function spawnDiggerTexture() {
   if (!state.musicians.digger.playing) return;
-  const dest = diggerGain || analyserNodes.digger;
+  const dest = getDiggerDest();
   const dur = 5 + Math.random() * 10;
   if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e){} }
   const pick = ['vinyl','rain','static','wind','vinyl','vinyl'];
@@ -1446,6 +1574,9 @@ function startDigger() {
     diggerGain.gain.value = 0.0001;
     diggerGain.connect(analyserNodes.digger);
   }
+  // Build initial fx chain (clean — effects added on reinterpret)
+  buildFxChain(0);
+
   // Try a random wiki record first
   const idx = Math.floor(Math.random() * WIKI_CRATE.length);
   tryFetchWikiRecord(idx);
@@ -1470,6 +1601,7 @@ function stopDigger() {
   }
   currentWikiIdx = -1;
   diggerMode = 'synth';
+  teardownFxChain();
 }
 
 
@@ -1658,8 +1790,10 @@ function reinterpret(m) {
       if (state.musicians.keys.playing) setStatus('keys', getLockedStatus('keys'));
     }, 1200);
   } else if (m === 'digger') {
+    const fxName = reinterpretDiggerFx();
     flipRecord();
-    setStatus('digger', '⊙ FLIPPING...');
+    setStatus('digger', '↻ ' + fxName);
+    setTimeout(() => { if (state.musicians.digger.playing) setStatus('digger', getLockedStatus('digger')); }, 2000);
   }
 }
 

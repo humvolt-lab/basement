@@ -1787,7 +1787,7 @@ function reinterpretDiggerFx() {
   if (next === currentFxPreset && FX_PRESETS.length > 1) next = (next + 1) % FX_PRESETS.length;
   currentFxPreset = next;
   buildFxChain(currentFxPreset);
-  // Respawn from stored buffer rather than re-fetching or rewiring old node
+  // Respawn with a new random loop point from the same buffer
   if (currentAudioBuf && diggerMode === 'wiki') {
     spawnFromBuffer(currentAudioBuf);
   }
@@ -1795,17 +1795,71 @@ function reinterpretDiggerFx() {
 }
 
 // Spawn a fresh BufferSourceNode from a decoded AudioBuffer
+// Pick a musically interesting loop point within the buffer
+// Looks for a consistent-energy region to avoid dead silence or pure noise
+function pickLoopPoint(audioBuf, loopBars) {
+  const sr       = audioBuf.sampleRate;
+  const beatSec  = 60 / state.tempo;
+  const loopSec  = beatSec * beatsPerMeasure() * loopBars;
+  const loopSamps = Math.floor(loopSec * sr);
+  const totalSamps = audioBuf.length;
+
+  if (loopSamps >= totalSamps) {
+    return { start: 0, end: totalSamps / sr };
+  }
+
+  // Scan candidate start points in 10% steps across middle 60% of file
+  // (avoid intros/outros which are often quiet or noisy)
+  const scanStart = Math.floor(totalSamps * 0.15);
+  const scanEnd   = Math.floor(totalSamps * 0.75);
+  const step      = Math.floor(totalSamps * 0.10);
+  const ch        = audioBuf.getChannelData(0);
+
+  let bestStart = scanStart;
+  let bestScore = -1;
+
+  for (let s = scanStart; s < scanEnd; s += step) {
+    if (s + loopSamps > totalSamps) break;
+    // RMS of this window
+    let rms = 0;
+    const checkLen = Math.min(loopSamps, 4096);
+    for (let i = 0; i < checkLen; i++) {
+      const v = ch[s + i] || 0;
+      rms += v * v;
+    }
+    rms = Math.sqrt(rms / checkLen);
+    // Prefer regions with moderate energy (not silence, not clipping)
+    const score = rms > 0.02 && rms < 0.7 ? rms : 0;
+    if (score > bestScore) { bestScore = score; bestStart = s; }
+  }
+
+  return {
+    start: bestStart / sr,
+    end:   (bestStart + loopSamps) / sr,
+  };
+}
+
 function spawnFromBuffer(audioBuf) {
   if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e) {} }
+
+  // Loop length: 1, 2, or 4 bars — weighted toward shorter for more hypnotic feel
+  const barOptions = [1, 1, 2, 2, 4];
+  const loopBars   = barOptions[Math.floor(Math.random() * barOptions.length)];
+  const loopPoint  = pickLoopPoint(audioBuf, loopBars);
+
   const src = ctx.createBufferSource();
-  src.buffer = audioBuf;
-  src.loop = true;
+  src.buffer    = audioBuf;
+  src.loop      = true;
+  src.loopStart = loopPoint.start;
+  src.loopEnd   = loopPoint.end;
+
   src.connect(getDiggerDest());
-  src.start();
+  // Start playback from the loop start point
+  src.start(0, loopPoint.start);
   currentDiggerNode = src;
-  src.onended = () => {
-    if (state.musicians.digger.playing && diggerMode === 'wiki') flipRecord();
-  };
+
+  // Store loop info for display
+  currentDiggerNode._loopBars = loopBars;
 }
 
 // ---- WIKIMEDIA FETCH + DECODE ----

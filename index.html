@@ -442,11 +442,31 @@
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
     color: var(--textdim);
-    font-size: 13px;
-    font-family: 'Share Tech Mono', monospace;
     transition: all 0.15s;
     margin-left: -4px;
-    letter-spacing: -0.05em;
+    padding: 5px;
+  }
+
+  .die-svg {
+    width: 100%; height: 100%;
+    overflow: visible;
+  }
+
+  .die-svg rect {
+    transition: stroke 0.15s;
+  }
+
+  @keyframes die-shake {
+    0%   { transform: rotate(0deg) scale(1); }
+    20%  { transform: rotate(-15deg) scale(1.1); }
+    40%  { transform: rotate(12deg) scale(0.95); }
+    60%  { transform: rotate(-8deg) scale(1.05); }
+    80%  { transform: rotate(5deg) scale(0.98); }
+    100% { transform: rotate(0deg) scale(1); }
+  }
+
+  .tweak-btn.rolling .die-svg {
+    animation: die-shake 0.12s ease-in-out;
   }
 
   .tweak-btn:active { transform: scale(0.88); }
@@ -640,7 +660,7 @@
         </div>
       </div>
       <button class="reint-btn" id="reint-drums" onclick="reinterpret('drums')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-drums" onclick="tweakSound('drums')" title="Randomize Sound">◈</button>
+      <button class="tweak-btn" id="tweak-drums" onclick="tweakSound('drums')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-drums"></g></svg></button>
       <button class="play-btn" id="btn-drums" onclick="toggleMusician('drums')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <polygon id="icon-drums" points="5,2 14,8 5,14" fill="#666"/>
@@ -673,7 +693,7 @@
         </div>
       </div>
       <button class="reint-btn" id="reint-bass" onclick="reinterpret('bass')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-bass" onclick="tweakSound('bass')" title="Randomize Sound">◈</button>
+      <button class="tweak-btn" id="tweak-bass" onclick="tweakSound('bass')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-bass"></g></svg></button>
       <button class="play-btn" id="btn-bass" onclick="toggleMusician('bass')">
         <svg width="16" height="16" viewBox="0 0 16 16">
           <polygon id="icon-bass" points="5,2 14,8 5,14" fill="#666"/>
@@ -705,7 +725,7 @@
         </div>
       </div>
       <button class="reint-btn" id="reint-keys" onclick="reinterpret('keys')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-keys" onclick="tweakSound('keys')" title="Randomize Sound">◈</button>
+      <button class="tweak-btn" id="tweak-keys" onclick="tweakSound('keys')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-keys"></g></svg></button>
       <button class="play-btn" id="btn-keys" onclick="toggleMusician('keys')">
         <svg width="16" height="16" viewBox="0 0 16 16">
           <polygon id="icon-keys" points="5,2 14,8 5,14" fill="#666"/>
@@ -741,7 +761,7 @@
         </div>
       </div>
       <button class="reint-btn" id="reint-digger" onclick="reinterpret('digger')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-digger" onclick="tweakSound('digger')" title="Randomize Sound">◈</button>
+      <button class="tweak-btn" id="tweak-digger" onclick="tweakSound('digger')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-digger"></g></svg></button>
       <button class="play-btn" id="btn-digger" onclick="toggleMusician('digger')">
         <svg width="16" height="16" viewBox="0 0 16 16">
           <polygon id="icon-digger" points="5,2 14,8 5,14" fill="#666"/>
@@ -869,6 +889,7 @@ async function initAudio() {
   document.getElementById('app').style.display = 'flex';
 
   initKnobs();
+  initDice();
   startVisuals();
 }
 
@@ -1263,6 +1284,7 @@ const WIKI_CRATE = [
 let diggerInterval    = null;
 let diggerGain        = null;
 let currentDiggerNode = null;
+let currentAudioBuf   = null;  // store decoded buffer so we can respawn
 let diggerMode        = 'synth';
 let currentWikiIdx    = -1;
 let diggerFetchAbort  = null;
@@ -1386,12 +1408,26 @@ function getDiggerDest() {
 function reinterpretDiggerFx() {
   let next = 1 + Math.floor(Math.random() * (FX_PRESETS.length - 1));
   currentFxPreset = next;
-  const entry = buildFxChain(currentFxPreset);
-  if (currentDiggerNode && entry) {
-    try { currentDiggerNode.disconnect(); } catch(e) {}
-    currentDiggerNode.connect(entry);
+  buildFxChain(currentFxPreset);
+  // Respawn from stored buffer rather than re-fetching or rewiring old node
+  if (currentAudioBuf && diggerMode === 'wiki') {
+    spawnFromBuffer(currentAudioBuf);
   }
   return FX_PRESETS[currentFxPreset].name;
+}
+
+// Spawn a fresh BufferSourceNode from a decoded AudioBuffer
+function spawnFromBuffer(audioBuf) {
+  if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e) {} }
+  const src = ctx.createBufferSource();
+  src.buffer = audioBuf;
+  src.loop = true;
+  src.connect(getDiggerDest());
+  src.start();
+  currentDiggerNode = src;
+  src.onended = () => {
+    if (state.musicians.digger.playing && diggerMode === 'wiki') flipRecord();
+  };
 }
 
 // ---- WIKIMEDIA FETCH + DECODE ----
@@ -1421,32 +1457,19 @@ async function tryFetchWikiRecord(idx) {
     if (!state.musicians.digger.playing) return;
 
     // Stop existing node
-    if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e){} }
+    // Store buffer so we can respawn without re-fetching
+    currentAudioBuf = audioBuf;
+    diggerMode = 'wiki';
+    currentWikiIdx = idx;
 
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuf;
-    src.loop = true;
-
-    // Route through fx chain (or direct to diggerGain if no fx)
-    const dest = getDiggerDest();
-    src.connect(dest);
-
-    // Fade in
+    // Fade in diggerGain
     const targetVol = 0.15 + state.musicians.digger.complexity * 0.07;
     diggerGain.gain.cancelScheduledValues(ctx.currentTime);
     diggerGain.gain.setValueAtTime(diggerGain.gain.value || 0.0001, ctx.currentTime);
     diggerGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 3);
 
-    src.start();
-    currentDiggerNode = src;
-    diggerMode = 'wiki';
-    currentWikiIdx = idx;
+    spawnFromBuffer(audioBuf);
     setStatus('digger', '▸ ' + entry.label);
-
-    // When it ends (if not looping) — flip to next
-    src.onended = () => {
-      if (state.musicians.digger.playing && diggerMode === 'wiki') flipRecord();
-    };
 
   } catch(e) {
     if (e.name === 'AbortError') return; // intentional abort
@@ -1600,6 +1623,7 @@ function stopDigger() {
     currentDiggerNode = null;
   }
   currentWikiIdx = -1;
+  currentAudioBuf = null;
   diggerMode = 'synth';
   teardownFxChain();
 }
@@ -1719,46 +1743,109 @@ const instrParams = {
   }
 };
 
-function tweakSound(m) {
-  // Flash button
+
+// ============================================================
+// DIE ANIMATION
+// ============================================================
+const DIE_FACES = {
+  1: [[10, 10]],
+  2: [[5.5, 5.5], [14.5, 14.5]],
+  3: [[5.5, 5.5], [10, 10], [14.5, 14.5]],
+  4: [[5.5, 5.5], [14.5, 5.5], [5.5, 14.5], [14.5, 14.5]],
+  5: [[5.5, 5.5], [14.5, 5.5], [10, 10], [5.5, 14.5], [14.5, 14.5]],
+  6: [[5.5, 5], [14.5, 5], [5.5, 10], [14.5, 10], [5.5, 15], [14.5, 15]],
+};
+
+function renderDieFace(m, face) {
+  const g = document.getElementById('die-' + m);
+  if (!g) return;
+  const dots = DIE_FACES[face] || DIE_FACES[1];
+  g.innerHTML = dots.map(([cx, cy]) =>
+    `<circle cx="${cx}" cy="${cy}" r="1.6" fill="currentColor"/>`
+  ).join('');
+}
+
+function rollDie(m, finalFace, onDone) {
   const btn = document.getElementById('tweak-' + m);
-  btn.classList.add('flash');
-  setTimeout(() => btn.classList.remove('flash'), 300);
+  if (!btn) return;
+  const sequence = [1,2,3,4,5,6,4,3,5,2,6,1,3,5,4,6,2]; // shuffled walk
+  const totalFrames = 10 + Math.floor(Math.random() * 6); // 10-15 frames
+  let frame = 0;
 
-  const r = (lo, hi) => lo + Math.random() * (hi - lo);
+  function nextFrame() {
+    if (frame < totalFrames) {
+      // Pick from sequence, skip the final face for the last few frames
+      const face = sequence[frame % sequence.length];
+      renderDieFace(m, face);
+
+      // Trigger shake animation by toggling class
+      btn.classList.remove('rolling');
+      void btn.offsetWidth; // reflow to restart animation
+      btn.classList.add('rolling');
+
+      // Slow down toward end — exponential easing
+      const progress = frame / totalFrames;
+      const delay = 60 + Math.pow(progress, 1.8) * 220;
+      frame++;
+      setTimeout(nextFrame, delay);
+    } else {
+      // Land on final face
+      renderDieFace(m, finalFace);
+      btn.classList.remove('rolling');
+      if (onDone) onDone();
+    }
+  }
+
+  nextFrame();
+}
+
+// Initialise all dice to face 1 once DOM is ready
+function initDice() {
+  ['drums', 'bass', 'keys', 'digger'].forEach(m => renderDieFace(m, 1));
+}
+
+function tweakSound(m) {
+  const r  = (lo, hi) => lo + Math.random() * (hi - lo);
   const ri = (lo, hi) => Math.floor(lo + Math.random() * (hi - lo + 1));
+  const finalFace = 1 + Math.floor(Math.random() * 6);
 
+  // Apply parameter changes immediately (audio updates on next scheduled note)
+  let statusMsg = '';
   if (m === 'drums') {
     instrParams.drums.kickDecay   = r(0.2, 1.0);
-    instrParams.drums.kickPitch   = r(180, 360); // maps to 50–100 Hz actual
+    instrParams.drums.kickPitch   = r(180, 360);
     instrParams.drums.snareSnap   = r(0.05, 0.3);
     instrParams.drums.hatDensity  = r(0.1, 0.9);
     instrParams.drums.distAmount  = r(10, 180);
-    setStatus('drums', '◈ DIALED IN');
+    statusMsg = 'DIALED IN';
   } else if (m === 'bass') {
     instrParams.bass.detune       = r(2, 28);
     instrParams.bass.filterMult   = r(2, 12);
     instrParams.bass.attackTime   = r(0.005, 0.08);
     instrParams.bass.decayShape   = r(0.4, 0.92);
-    setStatus('bass', '◈ REPATCHED');
+    statusMsg = 'REPATCHED';
   } else if (m === 'keys') {
     instrParams.keys.modRatio     = ri(1, 13);
     instrParams.keys.modDepth     = r(0.1, 0.75);
     instrParams.keys.tremRate     = r(2, 12);
     instrParams.keys.tremDepth    = r(0.01, 0.14);
     instrParams.keys.noteLength   = r(0.8, 2.4);
-    setStatus('keys', '◈ NEW TONE');
+    statusMsg = 'NEW TONE';
   } else if (m === 'digger') {
     instrParams.digger.filterFreq   = r(300, 6000);
     instrParams.digger.filterQ      = r(0.1, 4);
     instrParams.digger.clickDensity = r(0.0003, 0.012);
-    flipRecord();
-    setStatus('digger', '◈ REFILTERED');
+    const fxName = reinterpretDiggerFx();
+    statusMsg = fxName;
   }
 
-  setTimeout(() => {
-    if (state.musicians[m].playing) setStatus(m, getLockedStatus(m));
-  }, 1400);
+  // Roll the die — status updates when it lands
+  rollDie(m, finalFace, () => {
+    setStatus(m, finalFace + ' · ' + statusMsg);
+    setTimeout(() => {
+      if (state.musicians[m].playing) setStatus(m, getLockedStatus(m));
+    }, 1800);
+  });
 }
 
 function reinterpret(m) {
@@ -1790,9 +1877,15 @@ function reinterpret(m) {
       if (state.musicians.keys.playing) setStatus('keys', getLockedStatus('keys'));
     }, 1200);
   } else if (m === 'digger') {
-    const fxName = reinterpretDiggerFx();
-    flipRecord();
-    setStatus('digger', '↻ ' + fxName);
+    if (diggerMode === 'wiki' && currentAudioBuf) {
+      // Stay on the same record, just change the fx chain
+      const fxName = reinterpretDiggerFx();
+      setStatus('digger', '↻ ' + fxName);
+    } else {
+      // No record loaded yet — flip to a new one
+      flipRecord();
+      setStatus('digger', '⊙ FLIPPING...');
+    }
     setTimeout(() => { if (state.musicians.digger.playing) setStatus('digger', getLockedStatus('digger')); }, 2000);
   }
 }

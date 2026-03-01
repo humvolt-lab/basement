@@ -857,6 +857,106 @@ function applyPendingKeyChange() {
   }
 }
 
+// ============================================================
+// AUTO-JAM ENGINE — automated key & mode changes
+// ============================================================
+let autoJam = {
+  enabled: false,
+  measureCount: 0,       // measures elapsed since last change
+  nextChangeMeasure: 0,  // measure number to trigger next change
+  lastKey: 0,
+  lastMode: 'minor',
+};
+
+// Musically weighted key movements — prefer circle of fifths, relative shifts
+function pickNextKey(currentKey) {
+  const r = Math.random();
+  if (r < 0.35) {
+    // Circle of fifths up (+7) or down (-7)
+    return (currentKey + (Math.random() < 0.5 ? 7 : 5)) % 12;
+  } else if (r < 0.55) {
+    // Relative/parallel — same key, mode will change separately
+    return currentKey;
+  } else if (r < 0.70) {
+    // Half step up or down — tension move
+    return (currentKey + (Math.random() < 0.5 ? 1 : 11)) % 12;
+  } else if (r < 0.85) {
+    // Whole step
+    return (currentKey + (Math.random() < 0.5 ? 2 : 10)) % 12;
+  } else {
+    // Major third jump
+    return (currentKey + (Math.random() < 0.5 ? 4 : 8)) % 12;
+  }
+}
+
+function pickNextMode(currentMode) {
+  const modeList = Object.keys(MODES);
+  // Weight toward the darker/jazzier modes
+  const weighted = [
+    'minor', 'minor', 'dorian', 'dorian', 'dorian',
+    'phrygian', 'mixolydian', 'major',
+  ];
+  // Avoid repeating the same mode twice in a row
+  const candidates = weighted.filter(m => m !== currentMode);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function pickNextChangeMeasure() {
+  // Mostly 4 or 8 bar phrases, occasionally 2 or 16 — feels like real jamming
+  const options = [2, 4, 4, 4, 8, 8, 8, 8, 16];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function scheduleAutoJamChange(immediate) {
+  if (!autoJam.enabled) return;
+
+  // Decide whether to change key, mode, or both
+  const r = Math.random();
+  let newKey  = autoJam.lastKey;
+  let newMode = autoJam.lastMode;
+
+  if (r < 0.35) {
+    // Key change only
+    newKey = pickNextKey(autoJam.lastKey);
+  } else if (r < 0.60) {
+    // Mode change only
+    newMode = pickNextMode(autoJam.lastMode);
+  } else {
+    // Both — big move
+    newKey  = pickNextKey(autoJam.lastKey);
+    newMode = pickNextMode(autoJam.lastMode);
+  }
+
+  autoJam.lastKey  = newKey;
+  autoJam.lastMode = newMode;
+  autoJam.measureCount = 0;
+  autoJam.nextChangeMeasure = pickNextChangeMeasure();
+
+  setKey(newKey);
+  setMode(newMode);
+}
+
+// Called by scheduler at every beat 0 (measure boundary)
+function tickAutoJam() {
+  if (!autoJam.enabled) return;
+  autoJam.measureCount++;
+  if (autoJam.measureCount >= autoJam.nextChangeMeasure) {
+    scheduleAutoJamChange(false);
+  }
+}
+
+function startAutoJam() {
+  autoJam.enabled = true;
+  autoJam.measureCount = 0;
+  autoJam.lastKey  = state.key;
+  autoJam.lastMode = state.mode;
+  autoJam.nextChangeMeasure = pickNextChangeMeasure();
+}
+
+function stopAutoJam() {
+  autoJam.enabled = false;
+}
+
 function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
 function noteInScale(octave, degree) {
   return 48 + state.key + octave * 12 + SCALE_INTERVALS[degree % SCALE_INTERVALS.length];
@@ -974,6 +1074,7 @@ function startScheduler() {
   nextBeatTime = ctx.currentTime + 0.05;
   currentBeat = 0;
   schedulerTimer = setInterval(scheduleTick, SCHEDULE_INTERVAL);
+  startAutoJam();
 }
 
 function stopSchedulerIfNone() {
@@ -981,6 +1082,7 @@ function stopSchedulerIfNone() {
   if (!any && schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
+    stopAutoJam();
   }
 }
 
@@ -1004,7 +1106,7 @@ function scheduleTick() {
       const t = nextBeatTime + swing;
 
       // Apply queued key/mode changes at measure boundary so musicians meander in
-      if (beat === 0) applyPendingKeyChange();
+      if (beat === 0) { tickAutoJam(); applyPendingKeyChange(); }
 
       if (state.musicians.drums.playing && state.musicians.drums.state === 'locked') {
         scheduleDrums(beat, t, bd);
@@ -2041,20 +2143,20 @@ function reinterpret(m) {
       if (state.musicians.drums.playing) setStatus('drums', getLockedStatus('drums'));
     }, 1200);
   } else if (m === 'bass') {
-    // Regenerate pattern with extra randomization seed
-    state.musicians.bass._reroll = Math.random();
+    // Immediate key/mode change — skip the wait, apply now
+    scheduleAutoJamChange(true);
     generateBassPatternRandom();
-    setStatus('bass', '↻ NEW LINE');
+    setStatus('bass', '↻ MODULATING');
     setTimeout(() => {
       if (state.musicians.bass.playing) setStatus('bass', getLockedStatus('bass'));
-    }, 1200);
+    }, 1400);
   } else if (m === 'keys') {
-    state.musicians.keys._reroll = Math.random();
+    scheduleAutoJamChange(true);
     generateKeysPatternRandom();
-    setStatus('keys', '↻ NEW VOICING');
+    setStatus('keys', '↻ MODULATING');
     setTimeout(() => {
       if (state.musicians.keys.playing) setStatus('keys', getLockedStatus('keys'));
-    }, 1200);
+    }, 1400);
   } else if (m === 'digger') {
     if (diggerMode === 'wiki' && currentAudioBuf) {
       // Stay on the same record, just change the fx chain

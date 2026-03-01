@@ -1115,50 +1115,148 @@ function generateBassPattern() {
   if (bassPattern.length === 0) bassPattern = [0];
 }
 
-function makeDoubleSaw(midi, t, dur, gain=0.4) {
+// Build asymmetric tube-style waveshaper curve
+// positive side clips softer (even harmonics), negative harder (odd harmonics)
+// Stage 1: soft asymmetric clip — preamp warmth, even harmonics
+function makePreampCurve(drive) {
+  const n = 512, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2 / n) - 1;
+    // Positive half: soft tanh-style (triode-ish)
+    // Negative half: slightly harder (asymmetry = even harmonics + warmth)
+    if (x >= 0) {
+      curve[i] = Math.tanh(drive * x) / Math.tanh(drive);
+    } else {
+      curve[i] = Math.tanh(drive * 1.4 * x) / Math.tanh(drive * 1.4);
+    }
+  }
+  return curve;
+}
+
+// Stage 2: harder power-amp clip — square off the peaks, add odd harmonics
+function makePowerAmpCurve(drive) {
+  const n = 512, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2 / n) - 1;
+    // Cubic soft clip with hard ceiling — gets gnarly at high drive
+    const k = 1 + drive * 0.05;
+    const y = x * (3 - x * x * k) / 2;
+    curve[i] = Math.max(-1, Math.min(1, y));
+  }
+  return curve;
+}
+
+function makeDoubleSaw(midi, t, dur, gain = 0.4) {
   try {
     const dest = analyserNodes.bass;
     const p = instrParams.bass;
     const rawFreq = midiToFreq(midi);
-    if (!isFinite(rawFreq) || rawFreq <= 0) return; // bail before touching any AudioParam
+    if (!isFinite(rawFreq) || rawFreq <= 0) return;
     const freq = Math.max(30, rawFreq);
-    const now = ctx.currentTime;
-    const safeT = Math.max(t, now + 0.005);
+    const safeT = Math.max(t, ctx.currentTime + 0.005);
     const maxFreq = (ctx.sampleRate / 2) * 0.9;
+    const stopT = safeT + dur + 0.2;
+
+    // SIGNAL CHAIN:
+    // [osc x4] → env → stage1preamp → interGain → stage2poweramp
+    //   → subHP → midBoost → presenceCut → cabinetLP → outGain → dest
 
     const env = ctx.createGain();
-    const bassFilter = ctx.createBiquadFilter();
-    bassFilter.type = 'lowpass';
-    bassFilter.frequency.value = Math.min(Math.max(freq * p.filterMult, 80), maxFreq);
-    bassFilter.Q.value = 0.5;
-    env.connect(bassFilter);
-    bassFilter.connect(dest);
 
-    // Detune via frequency ratio — Safari-safe, no osc.detune
+    // Four sources: two detuned saws (body), octave-up saw (grind), fifth square (growl)
     const spread = Math.pow(2, Math.max(1, p.detune) / 2400);
-    [freq * spread, freq / spread].forEach(f => {
+    [
+      { f: freq * spread, type: 'sawtooth', g: 0.4  },  // saw A
+      { f: freq / spread, type: 'sawtooth', g: 0.4  },  // saw B (detuned)
+      { f: freq * 2,      type: 'sawtooth', g: 0.18 },  // octave — snarl
+      { f: freq * 1.5,    type: 'square',   g: 0.08 },  // fifth — weight
+    ].forEach(({ f, type, g }) => {
+      if (f > maxFreq) return;
       const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
+      osc.type = type;
       osc.frequency.value = Math.min(Math.max(f, 20), maxFreq);
-      const og = ctx.createGain();
-      og.gain.value = 0.5;
-      osc.connect(og);
-      og.connect(env);
-      osc.start(safeT);
-      osc.stop(safeT + dur + 0.1);
+      const og = ctx.createGain(); og.gain.value = g;
+      osc.connect(og); og.connect(env);
+      osc.start(safeT); osc.stop(stopT);
     });
 
-    // Envelope — only setValueAtTime + exponentialRamp, strictly ordered
+    // --- STAGE 1: Preamp (warmth, even harmonics) ---
+    const pre1 = ctx.createGain();
+    pre1.gain.value = p.drive * 1.8;     // slam the preamp input hard
+    env.connect(pre1);
+
+    const dist1 = ctx.createWaveShaper();
+    dist1.curve = makePreampCurve(p.drive);
+    dist1.oversample = '4x';
+    pre1.connect(dist1);
+
+    // Inter-stage high-pass — blocks DC offset buildup between stages
+    const interHP = ctx.createBiquadFilter();
+    interHP.type = 'highpass';
+    interHP.frequency.value = 40;  // just kill DC, keep the bass
+    interHP.Q.value = 0.5;
+    dist1.connect(interHP);
+
+    // --- STAGE 2: Power amp (harder clip, odd harmonics, speaker compression) ---
+    const pre2 = ctx.createGain();
+    pre2.gain.value = p.driveAmount * 0.04;  // driveAmount 20–180 → 0.8–7.2x
+    interHP.connect(pre2);
+
+    const dist2 = ctx.createWaveShaper();
+    dist2.curve = makePowerAmpCurve(p.driveAmount);
+    dist2.oversample = '2x';
+    pre2.connect(dist2);
+
+    // --- EQ & CABINET ---
+
+    // Sub HP: fix at 60Hz — doesn't track pitch so low notes stay full
+    const subHP = ctx.createBiquadFilter();
+    subHP.type = 'highpass';
+    subHP.frequency.value = 60;
+    subHP.Q.value = 0.7;
+    dist2.connect(subHP);
+
+    // Mid boost: 180–350Hz — amp growl / cabinet honk
+    const midBoost = ctx.createBiquadFilter();
+    midBoost.type = 'peaking';
+    midBoost.frequency.value = 180 + Math.random() * 170;
+    midBoost.Q.value = 0.9;
+    midBoost.gain.value = p.midBoost;
+    subHP.connect(midBoost);
+
+    // Upper-mid presence dip: 800–1.2kHz — tame the harsh fizz, push it back
+    const presenceDip = ctx.createBiquadFilter();
+    presenceDip.type = 'peaking';
+    presenceDip.frequency.value = 900 + Math.random() * 300;
+    presenceDip.Q.value = 1.2;
+    presenceDip.gain.value = -4;   // small cut — takes edge off without killing grit
+    midBoost.connect(presenceDip);
+
+    // Cabinet LP: old speaker rolls off around 3–4kHz
+    const cabLP = ctx.createBiquadFilter();
+    cabLP.type = 'lowpass';
+    cabLP.frequency.value = Math.min(3200 + Math.random() * 800, maxFreq);
+    cabLP.Q.value = 1.0 + Math.random() * 1.2;  // speaker resonance
+    presenceDip.connect(cabLP);
+
+    // Output compensate — distortion raises perceived volume a lot
+    const outGain = ctx.createGain();
+    outGain.gain.value = 0.42;
+    cabLP.connect(outGain);
+    outGain.connect(dest);
+
+    // Envelope
     const t1 = safeT;
-    const t2 = safeT + 0.025;          // attack end
-    const t3 = safeT + Math.max(dur * 0.75, 0.05); // hold end
-    const t4 = safeT + Math.max(dur, 0.08);         // release end
+    const t2 = safeT + Math.max(p.attackTime, 0.005);
+    const t3 = safeT + Math.max(dur * 0.78, 0.05);
+    const t4 = safeT + Math.max(dur, 0.08);
 
     env.gain.cancelScheduledValues(t1);
     env.gain.setValueAtTime(0.0001, t1);
     env.gain.setValueAtTime(gain,   t2);
     env.gain.setValueAtTime(gain,   t3);
     env.gain.exponentialRampToValueAtTime(0.0001, t4);
+
   } catch(e) {
     console.warn('Bass synth error:', e.message);
   }
@@ -1724,10 +1822,13 @@ const instrParams = {
     distAmount:  50,    // 10–200   — waveshaper drive
   },
   bass: {
-    detune:      6,     // 2–30 cents total spread between the two saws
-    filterMult:  6,     // 2–12     — lowpass cutoff as multiple of fundamental
-    attackTime:  0.01,  // 0.005–0.08
-    decayShape:  0.7,   // 0.4–0.95 — where gain hold ends (proportion of dur)
+    detune:      8,     // cents spread between the two saws
+    filterMult:  4,     // cabinet cutoff as multiple of fundamental (unused now, kept for compat)
+    attackTime:  0.010, // 0.005–0.06
+    decayShape:  0.78,
+    drive:       4.5,   // 1–8  — preamp stage gain (tanh saturation)
+    driveAmount: 110,   // 20–180 — power amp stage clip intensity
+    midBoost:    9,     // 2–16 dB — growl zone boost
   },
   keys: {
     modRatio:    7,     // 1–14     — FM modulator harmonic
@@ -1819,10 +1920,11 @@ function tweakSound(m) {
     instrParams.drums.distAmount  = r(10, 180);
     statusMsg = 'DIALED IN';
   } else if (m === 'bass') {
-    instrParams.bass.detune       = r(2, 28);
-    instrParams.bass.filterMult   = r(2, 12);
-    instrParams.bass.attackTime   = r(0.005, 0.08);
-    instrParams.bass.decayShape   = r(0.4, 0.92);
+    instrParams.bass.detune       = r(2, 24);
+    instrParams.bass.attackTime   = r(0.005, 0.05);
+    instrParams.bass.drive        = r(2, 8);
+    instrParams.bass.driveAmount  = r(40, 180);
+    instrParams.bass.midBoost     = r(4, 16);
     statusMsg = 'REPATCHED';
   } else if (m === 'keys') {
     instrParams.keys.modRatio     = ri(1, 13);

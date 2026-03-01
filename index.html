@@ -1204,45 +1204,96 @@ function makeDistCurve(amount) {
   return curve;
 }
 
+// ---- GROOVE LIBRARY ----
+// Each groove: { name, kick[8], snare[8], hatPat[8], openHat[8], ghost[8] }
+// All patterns are 8 steps (2 beats at 8th-note resolution per beat in 4/4)
+// Scheduled 2 steps at a time — each beat subdivides into 2 eighth notes
+const GROOVE_LIBRARY = [
+  // --- SIMPLE ---
+  { name:'FOUR FOUR',   kick:[1,0,0,0,1,0,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,1], ghost:[0,0,0,0,0,0,0,0] },
+  { name:'HALF TIME',   kick:[1,0,0,0,0,0,1,0], snare:[0,0,0,0,1,0,0,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,0,0], ghost:[0,0,0,0,0,0,0,0] },
+  { name:'BOOM BAP',    kick:[1,0,0,1,0,0,1,0], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,1,1,0,1,0], open:[0,0,0,0,0,0,0,1], ghost:[0,0,0,1,0,0,0,0] },
+  // --- MEDIUM ---
+  { name:'FUNK',        kick:[1,0,1,0,0,1,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,1,0,0,1] },
+  { name:'HIP HOP',     kick:[1,0,0,0,1,0,0,1], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,0,0], ghost:[0,0,0,1,0,1,0,0] },
+  { name:'NEO SOUL',    kick:[1,0,0,1,0,0,0,0], snare:[0,0,1,0,0,1,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,1], ghost:[0,1,0,0,0,0,1,0] },
+  { name:'TRAP',        kick:[1,0,0,0,0,0,1,0], snare:[0,0,0,0,1,0,0,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,0], ghost:[0,0,1,0,0,1,0,1] },
+  // --- COMPLEX ---
+  { name:'BROKEN BEAT', kick:[1,0,0,1,0,1,0,0], snare:[0,0,1,0,1,0,0,1], hat:[1,0,1,1,0,1,1,0], open:[0,0,0,0,1,0,0,0], ghost:[1,0,0,0,1,0,1,0] },
+  { name:'JAZZ',        kick:[1,0,0,0,0,0,1,0], snare:[0,0,1,0,0,1,0,0], hat:[1,1,0,1,1,1,0,1], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,0,1,0,1] },
+  { name:'AFROBEAT',    kick:[1,0,1,0,0,0,1,0], snare:[0,0,0,1,0,0,1,0], hat:[1,1,1,0,1,1,1,0], open:[0,0,0,0,0,0,0,1], ghost:[0,0,1,0,1,0,0,0] },
+  { name:'SHUFFLE',     kick:[1,0,0,0,1,0,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,0,1,0,0] },
+  { name:'TWO STEP',    kick:[1,0,0,0,0,1,0,0], snare:[0,0,1,0,0,0,0,1], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,1,0], ghost:[0,0,0,1,0,0,1,0] },
+  { name:'LOOSE',       kick:[1,0,0,1,0,0,1,0], snare:[0,0,1,0,0,1,0,0], hat:[1,0,1,0,1,1,0,1], open:[0,0,0,0,0,0,0,1], ghost:[0,1,0,1,0,0,1,0] },
+];
+
+// Simple → first 3 grooves; Medium → 3–6; Complex → all
+function groovesForComplexity(c) {
+  if (c === 1) return GROOVE_LIBRARY.slice(0, 3);
+  if (c === 2) return GROOVE_LIBRARY.slice(0, 7);
+  return GROOVE_LIBRARY;
+}
+
+let currentGroove = GROOVE_LIBRARY[0];
+let grooveMeasureCount = 0;
+let grooveChangeMeasure = 4;
+
+function pickNewGroove(c) {
+  const pool = groovesForComplexity(c);
+  // Avoid repeating same groove
+  const candidates = pool.filter(g => g.name !== currentGroove.name);
+  currentGroove = candidates[Math.floor(Math.random() * candidates.length)];
+  grooveMeasureCount = 0;
+  grooveChangeMeasure = [2,4,4,8][Math.floor(Math.random()*4)];
+  return currentGroove.name;
+}
+
 function scheduleDrums(beat, t, bd) {
-  const c = state.musicians.drums.complexity;
+  const c   = state.musicians.drums.complexity;
   const bpm = beatsPerMeasure();
 
-  // If reroll flagged, pick a random variant this bar
-  let patIdx = c - 1;
+  // Auto-rotate groove every few bars
+  if (beat === 0) {
+    grooveMeasureCount++;
+    if (grooveMeasureCount >= grooveChangeMeasure) pickNewGroove(c);
+  }
+
+  // ↻ forces immediate new groove
   if (state.musicians.drums._rerollIdx !== undefined) {
-    patIdx = state.musicians.drums._rerollIdx;
-    if (beat === beatsPerMeasure() - 1) delete state.musicians.drums._rerollIdx; // clear after one full bar
+    pickNewGroove(c);
+    setStatus('drums', '↻ ' + currentGroove.name);
+    setTimeout(() => { if (state.musicians.drums.playing) setStatus('drums', getLockedStatus('drums')); }, 1200);
+    delete state.musicians.drums._rerollIdx;
   }
 
-  // Kick patterns — 0,1,2 = complexity defaults; 3,4 = reroll bonus grooves
-  const kickPatterns = [
-    [1,0,0,0, 1,0,0,0], // 0: simple
-    [1,0,0,1, 0,0,1,0], // 1: medium
-    [1,0,1,0, 0,1,0,1], // 2: complex
-    [1,0,0,0, 0,0,1,0], // 3: syncopated
-    [1,1,0,0, 1,0,0,1], // 4: driving
-  ];
-  const kickPat = kickPatterns[Math.min(patIdx, kickPatterns.length - 1)];
+  const g   = currentGroove;
+  const hd  = instrParams.drums.hatDensity;
 
-  // Map beat to pattern position (support non-4/4)
-  const pos = beat % kickPat.length;
-  if (kickPat[pos]) make808Kick(t, 0.70);
+  // Each beat maps to 2 eighth-note steps in the 8-step pattern
+  const step  = (beat * 2) % 8;
+  const step2 = (step + 1) % 8;
 
-  // Snare on 2 and 4 (in 4/4) or adjusted
-  const snareBeats = [2, bpm-1];
-  if (snareBeats.includes(beat % bpm)) make808Snare(t, 0.5);
+  // Step 1 (on the beat)
+  if (g.kick[step])  make808Kick(t, 0.70);
+  if (g.snare[step]) make808Snare(t, g.ghost[step] ? 0.18 : 0.48); // ghost = quiet
+  if (g.open[step])  make808Hat(t, true,  0.18 + hd * 0.08);
+  else if (g.hat[step]) make808Hat(t, false, 0.14 + hd * 0.08);
 
-  // Hats — density controlled by instrParams
-  const hd = instrParams.drums.hatDensity;
-  if (c >= 1) make808Hat(t, false, 0.15 + hd * 0.1);
-  if (hd > 0.3 && Math.random() < hd) {
-    make808Hat(t + bd * 0.5, false, 0.12);
+  // Step 2 (the "and" — eighth note later)
+  if (g.kick[step2])  make808Kick(t + bd * 0.5, 0.55);
+  if (g.snare[step2]) make808Snare(t + bd * 0.5, g.ghost[step2] ? 0.15 : 0.45);
+  if (g.open[step2])  make808Hat(t + bd * 0.5, true,  0.15);
+  else if (g.hat[step2]) make808Hat(t + bd * 0.5, false, 0.10 + hd * 0.06);
+
+  // Occasional 16th-note hat flourish at high density
+  if (hd > 0.65 && Math.random() < hd * 0.4) {
+    make808Hat(t + bd * 0.75, false, 0.07 + hd * 0.04);
   }
-  if (hd > 0.6 && Math.random() < hd * 0.6) {
-    make808Hat(t + bd * 0.75, false, 0.08);
+
+  // Crash/open hat on bar 1 beat 1 occasionally
+  if (beat === 0 && Math.random() < 0.25) {
+    make808Hat(t, true, 0.12 + hd * 0.06);
   }
-  if (beat === bpm - 1 && Math.random() < hd * 0.6) make808Hat(t, true, 0.2 + hd * 0.1);
 }
 
 // ============================================================
@@ -1251,24 +1302,47 @@ function scheduleDrums(beat, t, bd) {
 let bassPattern = [];
 let bassPatternIdx = 0;
 
+// Bass pattern library — arrays of scale degrees, -1 = rest
+// Degree map: 0=root 1=2nd 2=3rd 3=4th 4=5th 5=6th 6=7th
+const BASS_PATTERNS = {
+  1: [
+    // Simple — root-fifth, lots of space
+    [0,-1,-1,-1, 4,-1,-1,-1],
+    [0,-1,-1,-1,-1,-1, 4,-1],
+    [0,-1, 4,-1, 0,-1,-1,-1],
+    [0,-1,-1,-1, 0,-1,-1,-1],
+  ],
+  2: [
+    // Medium — root/fifth movement, pickup notes, light syncopation
+    [0,-1, 4,-1, 0,-1, 4,-1],
+    [0,-1,-1, 4,-1,-1, 0,-1],
+    [0,-1, 4,-1, 4,-1, 0, 4],
+    [0,-1, 0,-1, 4,-1,-1, 0],
+    [0, 4,-1,-1, 0,-1, 4,-1],
+  ],
+  3: [
+    // Complex — walking lines, chromatic approach, syncopation
+    [0, 4, 2, 6, 1, 5, 3, 4],
+    [0,-1, 2, 4, 0,-1, 4, 6],
+    [0, 2, 4,-1, 4, 2, 0, 4],
+    [0, 4,-1, 2, 4,-1, 6, 4],
+    [0,-1, 4, 2, 6, 4, 2, 0],
+    [0, 2,-1, 4,-1, 6, 4,-1],
+  ],
+};
+
+let _lastBassPatKey = -1;
+
 function generateBassPattern() {
-  const c = state.musicians.bass.complexity;
+  const c   = state.musicians.bass.complexity;
   const len = Math.max(1, beatsPerMeasure());
-  bassPattern = [];
-  for (let i = 0; i < len; i++) {
-    if (c === 1) {
-      const degree = i === 0 ? 0 : (i === Math.floor(len/2) ? 4 : -1);
-      bassPattern.push(degree);
-    } else if (c === 2) {
-      // Root on beat 1, fifth on beat 3, rests elsewhere — simple but not static
-      const degree = i === 0 ? 0 : (i === Math.floor(len / 2) ? 4 : (i === len - 1 ? 0 : -1));
-      bassPattern.push(degree);
-    } else {
-      const degrees = [0, 4, 2, 6, 1, 5, 3, 4];
-      bassPattern.push(degrees[i % degrees.length]);
-    }
-  }
-  // Safety: ensure never empty
+  const pool = BASS_PATTERNS[c] || BASS_PATTERNS[2];
+  // Avoid immediate repeat
+  let idx = Math.floor(Math.random() * pool.length);
+  if (idx === _lastBassPatKey && pool.length > 1) idx = (idx + 1) % pool.length;
+  _lastBassPatKey = idx;
+  const template = pool[idx];
+  bassPattern = Array.from({ length: len }, (_, i) => template[i % template.length]);
   if (bassPattern.length === 0) bassPattern = [0];
 }
 
@@ -1582,26 +1656,61 @@ function makeRhodes(midi, t, dur, gain=0.3) {
 
 let keysPattern = [];
 
+// Keys comping style library
+// null = rest, array = chord as scale degrees
+// Voicings: [root,3rd,5th] = triad; [root,3rd,5th,7th] = 7th chord; [3rd,5th,7th] = shell
+const KEYS_STYLES = {
+  1: [
+    // Minimal — one or two hits per bar, whole notes
+    (len) => Array.from({length:len}, (_,i) => i===0 ? [0,2,4] : i===Math.floor(len/2) ? [0,2] : null),
+    (len) => Array.from({length:len}, (_,i) => i===0 ? [0,2,4] : null),
+    (len) => Array.from({length:len}, (_,i) => (i===0||i===len-1) ? [0,4] : null),
+  ],
+  2: [
+    // Comping — offbeat hits, shell voicings, moderate density
+    (len) => Array.from({length:len}, (_,i) => {
+      const pat = [1,0,0,1,0,1,0,0]; // syncopated comp
+      return pat[i%8] ? (Math.random()<0.5?[2,4,6]:[0,2,4]) : null;
+    }),
+    (len) => Array.from({length:len}, (_,i) => {
+      const on = [1,0,1,0,0,1,0,1][i%8];
+      return on ? [0,2,4] : null;
+    }),
+    (len) => Array.from({length:len}, (_,i) => {
+      const pat = [1,0,0,0,1,0,1,0];
+      return pat[i%8] ? (i%4===0?[0,2,4,6]:[2,4,6]) : null;
+    }),
+  ],
+  3: [
+    // Dense jazz comping — 7th chords, upper structures, frequent hits
+    (len) => Array.from({length:len}, (_,i) => {
+      if (Math.random() < 0.25) return null;
+      const root = [0,1,2][Math.floor(Math.random()*3)];
+      return Math.random()<0.5 ? [root,root+2,root+4,root+6] : [root+2,root+4,root+6];
+    }),
+    (len) => Array.from({length:len}, (_,i) => {
+      const pat = [1,0,1,1,0,1,0,1];
+      if (!pat[i%8]) return null;
+      const v = Math.floor(Math.random()*4);
+      return [[0,2,4],[0,2,4,6],[2,4,6],[1,3,5]][v];
+    }),
+    (len) => Array.from({length:len}, (_,i) => {
+      if (i%2!==0 && Math.random()<0.5) return null;
+      return Math.random()<0.6 ? [0,2,4,6] : [2,4,6];
+    }),
+  ],
+};
+
+let _lastKeysStyleIdx = -1;
+
 function generateKeysPattern() {
-  const c = state.musicians.keys.complexity;
+  const c   = state.musicians.keys.complexity;
   const len = beatsPerMeasure();
-  keysPattern = [];
-  // Keys plays chords / comping — generate sparse pattern
-  for (let i = 0; i < len; i++) {
-    if (c === 1) {
-      // Just root + third on beats 1 and 3
-      keysPattern.push((i === 0 || i === Math.floor(len/2)) ? [0, 2] : null);
-    } else if (c === 2) {
-      // Comp on offbeats sometimes
-      const plays = Math.random() < 0.6;
-      keysPattern.push(plays ? [0, 2, 4] : null);
-    } else {
-      // Dense jazz voicings
-      const plays = Math.random() < 0.8;
-      const deg = Math.floor(Math.random() * 3);
-      keysPattern.push(plays ? [deg, deg+2, deg+4, deg+6] : null);
-    }
-  }
+  const pool = KEYS_STYLES[c] || KEYS_STYLES[2];
+  let idx = Math.floor(Math.random() * pool.length);
+  if (idx === _lastKeysStyleIdx && pool.length > 1) idx = (idx + 1) % pool.length;
+  _lastKeysStyleIdx = idx;
+  keysPattern = pool[idx](len);
 }
 
 function scheduleKeys(beat, t, bd) {
@@ -1609,9 +1718,13 @@ function scheduleKeys(beat, t, bd) {
   const chord = keysPattern[beat % keysPattern.length];
   if (!chord) return;
   chord.forEach((deg, i) => {
-    const oct = i >= 3 ? 2 : (i >= 1 ? 2 : 2);
+    // Voice spread: bass notes in oct 1, upper voices in oct 2
+    const oct = (i === 0 && deg === 0) ? 1 : 2;
     const midi = noteInScale(oct, deg);
-    makeRhodes(midi, t + i * 0.015, bd, 0.13 - i * 0.015); // scaled — channel comp handles level
+    // Slight humanise — vary timing and velocity per voice
+    const nudge  = (Math.random() - 0.5) * 0.012; // ±6ms
+    const vel    = (0.13 - i * 0.012) * (0.85 + Math.random() * 0.3);
+    makeRhodes(midi, t + i * 0.012 + nudge, bd, Math.max(0.04, vel));
   });
 }
 
@@ -2346,56 +2459,21 @@ function reinterpret(m) {
 }
 
 function generateBassPatternRandom() {
+  // On reinterpret: pick from a different complexity tier for variety
   const c = state.musicians.bass.complexity;
+  const allPools = [...BASS_PATTERNS[1], ...BASS_PATTERNS[2], ...BASS_PATTERNS[3]];
+  const template = allPools[Math.floor(Math.random() * allPools.length)];
   const len = beatsPerMeasure();
-  const allDegrees = [0, 1, 2, 3, 4, 5, 6];
-  bassPattern = [];
-  for (let i = 0; i < len; i++) {
-    if (c === 1) {
-      // Sparse — root on 1, maybe a fifth or rest
-      const pick = Math.random();
-      if (i === 0) bassPattern.push(0);
-      else if (pick < 0.3) bassPattern.push(4);
-      else if (pick < 0.5) bassPattern.push(0);
-      else bassPattern.push(-1);
-    } else if (c === 2) {
-      // Walking — pick from lower degrees, occasional rest
-      const pick = Math.random() < 0.8 ? allDegrees[Math.floor(Math.random() * 5)] : -1;
-      bassPattern.push(i === 0 ? 0 : pick);
-    } else {
-      // Complex — all degrees fair game, dense
-      const pick = Math.random() < 0.9 ? allDegrees[Math.floor(Math.random() * allDegrees.length)] : -1;
-      bassPattern.push(i === 0 ? 0 : pick);
-    }
-  }
+  bassPattern = Array.from({ length: len }, (_, i) => template[i % template.length]);
 }
 
 function generateKeysPatternRandom() {
-  const c = state.musicians.keys.complexity;
-  const len = beatsPerMeasure();
-  keysPattern = [];
-  for (let i = 0; i < len; i++) {
-    const r = Math.random();
-    if (c === 1) {
-      const threshold = i === 0 ? 1 : 0.25;
-      if (r < threshold) {
-        const root = Math.floor(Math.random() * 3);
-        keysPattern.push([root, root+2]);
-      } else keysPattern.push(null);
-    } else if (c === 2) {
-      if (r < 0.55) {
-        const root = Math.floor(Math.random() * 3);
-        keysPattern.push([root, root+2, root+4]);
-      } else keysPattern.push(null);
-    } else {
-      if (r < 0.75) {
-        const root = Math.floor(Math.random() * 4);
-        const extra = Math.random() < 0.5 ? [root+6] : [];
-        keysPattern.push([root, root+2, root+4, ...extra]);
-      } else keysPattern.push(null);
-    }
-  }
+  // Pick from any style pool for variety
+  const allPools = [...KEYS_STYLES[1], ...KEYS_STYLES[2], ...KEYS_STYLES[3]];
+  const styleFn  = allPools[Math.floor(Math.random() * allPools.length)];
+  keysPattern    = styleFn(beatsPerMeasure());
 }
+
 
 function setComplexity(m, level) {
   state.musicians[m].complexity = level;

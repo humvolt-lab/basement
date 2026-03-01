@@ -772,14 +772,13 @@
 // ============================================================
 // AUDIO ENGINE
 // ============================================================
-let ctx, masterGain, reverbNode, convolver, lofiFilter, wobbleLFO, wobbleGain;
+let ctx, masterGain, lofiFilter, wobbleLFO, wobbleGain;
 let analyserNodes = {};
 
 const state = {
   tempo: 120,
   timeSig: { num: 4, den: 4 },
   key: 0, // semitones from C
-  reverb: 0.3,
   wobble: 0.2,
   lofi: 0.4,
   swing: 0.5,
@@ -876,14 +875,6 @@ async function initAudio() {
   lofiFilter.type = 'lowpass';
   lofiFilter.frequency.value = 8000;
 
-  // Reverb (simple convolver with generated IR)
-  convolver = ctx.createConvolver();
-  convolver.buffer = makeReverbIR(ctx, 2.5);
-  const reverbWet = ctx.createGain();
-  reverbWet.gain.value = state.reverb;
-  const reverbDry = ctx.createGain();
-  reverbDry.gain.value = 1 - state.reverb * 0.5;
-
   // Wobble LFO
   wobbleLFO = ctx.createOscillator();
   wobbleLFO.frequency.value = 0.3;
@@ -894,12 +885,8 @@ async function initAudio() {
   wobbleGain.connect(lofiFilter.frequency);
   wobbleLFO.start();
 
-  // Chain: lofiFilter -> dry+wet -> master -> destination
-  lofiFilter.connect(reverbDry);
-  lofiFilter.connect(convolver);
-  convolver.connect(reverbWet);
-  reverbDry.connect(masterGain);
-  reverbWet.connect(masterGain);
+  // Chain: lofiFilter -> master -> destination (no reverb)
+  lofiFilter.connect(masterGain);
   masterGain.connect(ctx.destination);
 
   // Per-channel compressors — tuned per instrument, sit between analyser and lofi bus
@@ -957,8 +944,7 @@ async function initAudio() {
   masterComp.attack.value    = 0.005;
   masterComp.release.value   = 0.30;
 
-  // Re-wire master: lofi → reverb paths → masterComp → masterGain → destination
-  // (need to break the direct masterGain→destination and insert comp)
+  // Re-wire master: insert masterComp between masterGain and destination
   masterGain.disconnect();
   masterGain.connect(masterComp);
   masterComp.connect(ctx.destination);
@@ -969,19 +955,6 @@ async function initAudio() {
   initKnobs();
   initDice();
   startVisuals();
-}
-
-function makeReverbIR(ctx, duration) {
-  const rate = ctx.sampleRate;
-  const length = rate * duration;
-  const buf = ctx.createBuffer(2, length, rate);
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    for (let i = 0; i < length; i++) {
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
-    }
-  }
-  return buf;
 }
 
 // ============================================================

@@ -1274,91 +1274,110 @@ function generateBassPattern() {
 // Build asymmetric tube-style waveshaper curve
 // positive side clips softer (even harmonics), negative harder (odd harmonics)
 // Stage 1: soft asymmetric clip — preamp warmth, even harmonics
-// Plucked sub bass
-// A pitched click/thump at attack + sine body that decays quickly — 808/trap sub feel
-// Signal chain: click (noise burst) + sine → ampEnv → HP (clean sub) → out
-function makePluckedSub(midi, t, dur, gain = 0.5) {
+// Acoustic upright bass simulation
+// Built from three layers that mimic how a double bass actually sounds:
+//   1. BOW NOISE — short filtered noise burst at onset (finger/bow on string)
+//   2. BODY TONE — triangle + quiet sine fundamental (warm, hollow)
+//   3. RESONANCE BUMP — peaking EQ around the "wolf note" chest resonance (~200Hz)
+// No distortion, no filter sweep — just shape, decay, and natural body
+function makeUprightBass(midi, t, dur, gain = 0.5) {
   try {
-    const dest = analyserNodes.bass;
-    const p    = instrParams.bass;
+    const dest  = analyserNodes.bass;
+    const p     = instrParams.bass;
     const rawFreq = midiToFreq(midi);
     if (!isFinite(rawFreq) || rawFreq <= 0) return;
     const freq  = Math.max(30, rawFreq);
     const safeT = Math.max(t, ctx.currentTime + 0.005);
     const maxF  = (ctx.sampleRate / 2) * 0.9;
+    const noteLen = Math.min(dur * p.sustain, 1.8);
+    const stopT   = safeT + noteLen + 0.3;
 
-    // --- PITCH ENVELOPE on the sine ---
-    // Starts sharp (1.5–3x freq) and falls to target in ~30ms — the "thump"
-    const body = ctx.createOscillator();
-    body.type = 'sine';
-    body.frequency.setValueAtTime(Math.min(freq * p.pitchEnvAmount, maxF), safeT);
-    body.frequency.exponentialRampToValueAtTime(
-      Math.max(freq, 20), safeT + p.pitchDecay
-    );
+    // ---- LAYER 1: FUNDAMENTAL SINE ----
+    // Pure sine gives the sub weight — upright bass is mostly fundamental
+    const sine = ctx.createOscillator();
+    sine.type = 'sine';
+    sine.frequency.value = Math.min(freq, maxF);
+    const sineG = ctx.createGain(); sineG.gain.value = 0.6;
+    sine.connect(sineG);
 
-    // Harmonic layer — quiet triangle an octave up, just enough to hear pitch on small speakers
-    const harm = ctx.createOscillator();
-    harm.type = 'triangle';
-    harm.frequency.value = Math.min(freq * 2, maxF);
-    const harmGain = ctx.createGain();
-    harmGain.gain.value = p.harmLevel;  // 0 = pure sub, 0.3 = some definition
+    // ---- LAYER 2: TRIANGLE (body harmonics) ----
+    // Triangle has only odd harmonics and they fall off fast — hollow woody sound
+    const tri = ctx.createOscillator();
+    tri.type = 'triangle';
+    tri.frequency.value = Math.min(freq, maxF);
+    const triG = ctx.createGain(); triG.gain.value = 0.35;
+    tri.connect(triG);
 
-    // --- CLICK --- very short noise burst at onset, gives the "pluck" transient
-    const clickDur = 0.018;
-    const clickBuf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * clickDur), ctx.sampleRate);
-    const cd = clickBuf.getChannelData(0);
-    for (let i = 0; i < cd.length; i++) {
-      // Shaped noise — loud at start, tails off
-      cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / cd.length, 3);
+    // ---- LAYER 3: BOW/PLUCK NOISE BURST ----
+    // Very short (25ms) noise shaped to sound like a finger stopping a string
+    const attackDur = 0.025;
+    const noiseBuf  = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * attackDur), ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) {
+      nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nd.length, 2);
     }
-    const click = ctx.createBufferSource();
-    click.buffer = clickBuf;
-    const clickFilt = ctx.createBiquadFilter();
-    clickFilt.type = 'bandpass';
-    clickFilt.frequency.value = Math.min(freq * 3, 800); // pitched click
-    clickFilt.Q.value = 0.8;
-    const clickGain = ctx.createGain();
-    clickGain.gain.value = p.clickLevel;
+    const noise    = ctx.createBufferSource(); noise.buffer = noiseBuf;
+    // Bandpass centred around the note — gives it pitch, not just a thud
+    const noiseBP  = ctx.createBiquadFilter();
+    noiseBP.type = 'bandpass';
+    noiseBP.frequency.value = Math.min(freq * 2.5, 1200);
+    noiseBP.Q.value = 1.2;
+    const noiseG   = ctx.createGain(); noiseG.gain.value = p.attackNoise;
+    noise.connect(noiseBP); noiseBP.connect(noiseG);
 
-    click.connect(clickFilt);
-    clickFilt.connect(clickGain);
+    // ---- MIX ----
+    const mix = ctx.createGain(); mix.gain.value = 1;
+    sineG.connect(mix);
+    triG.connect(mix);
+    noiseG.connect(mix);
 
-    // --- AMP ENVELOPE ---
+    // ---- BODY RESONANCE EQ ----
+    // Upright bass bodies resonate between 180–280Hz — small boost here
+    // gives that characteristic warmth and "chest" without any distortion
+    const bodyEQ = ctx.createBiquadFilter();
+    bodyEQ.type = 'peaking';
+    bodyEQ.frequency.value = 180 + Math.random() * 100;
+    bodyEQ.Q.value = 1.5;
+    bodyEQ.gain.value = p.bodyResonance;   // gentle lift, not a boost
+    mix.connect(bodyEQ);
+
+    // HP to keep sub clean, LP to roll off the bright top (gut string = warm)
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass';
+    hp.frequency.value = 40; hp.Q.value = 0.5;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = Math.min(1800 + Math.random() * 600, maxF); lp.Q.value = 0.7;
+    bodyEQ.connect(hp); hp.connect(lp);
+
+    const outGain = ctx.createGain(); outGain.gain.value = 0.65;
+    lp.connect(outGain); outGain.connect(dest);
+
+    // ---- AMPLITUDE ENVELOPE ----
+    // Fast attack (finger down) → hold → natural decay
+    // Slight swell (0→gain in ~15ms) mimics how upright notes bloom slightly
     const ampEnv = ctx.createGain();
-    body.connect(ampEnv);
-    harm.connect(harmGain);
-    harmGain.connect(ampEnv);
-    clickGain.connect(ampEnv);
+    // Reroute: mix goes through bodyEQ through HP/LP — but amp env wraps the whole thing
+    // Re-wire: osc layers → ampEnv → bodyEQ chain
+    sineG.disconnect(); triG.disconnect(); noiseG.disconnect(); mix.disconnect();
+    sineG.connect(ampEnv); triG.connect(ampEnv); noiseG.connect(ampEnv);
+    ampEnv.connect(bodyEQ);
 
-    // Clean HP at 30Hz — keeps the sub tight, avoids speaker-killing DC
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 30;
-    hp.Q.value = 0.5;
-    ampEnv.connect(hp);
-
-    const outGain = ctx.createGain();
-    outGain.gain.value = 0.7;
-    hp.connect(outGain);
-    outGain.connect(dest);
-
-    // Amp envelope — fast attack, exponential decay, no sustain (it's a pluck)
-    const noteLen = Math.min(dur, p.decayTime); // note length capped by decay param
     const t1 = safeT;
-    const t2 = safeT + 0.006;          // near-instant attack
-    const t4 = safeT + Math.max(noteLen, 0.08);
+    const t2 = safeT + 0.015;                        // bloom attack
+    const t3 = safeT + Math.max(noteLen * 0.6, 0.05);// hold
+    const t4 = safeT + Math.max(noteLen, 0.1);        // decay out
 
     ampEnv.gain.cancelScheduledValues(t1);
     ampEnv.gain.setValueAtTime(0.0001, t1);
     ampEnv.gain.linearRampToValueAtTime(gain, t2);
+    ampEnv.gain.setValueAtTime(gain, t3);
     ampEnv.gain.exponentialRampToValueAtTime(0.0001, t4);
 
-    body.start(safeT); body.stop(safeT + noteLen + 0.05);
-    harm.start(safeT); harm.stop(safeT + noteLen + 0.05);
-    click.start(safeT); click.stop(safeT + clickDur + 0.01);
+    sine.start(safeT); sine.stop(stopT);
+    tri.start(safeT);  tri.stop(stopT);
+    noise.start(safeT); noise.stop(safeT + attackDur + 0.01);
 
   } catch(e) {
-    console.warn('Bass synth error:', e.message);
+    console.warn('Upright bass error:', e.message);
   }
 }
 
@@ -1371,7 +1390,7 @@ function scheduleBass(beat, t, bd) {
     const midi = Math.max(28, isFinite(raw) ? raw : 36);
     const freq = midiToFreq(midi);
     if (!isFinite(freq) || freq <= 0) return;
-    makePluckedSub(midi, t, bd);
+    makeUprightBass(midi, t, bd);
   } catch(e) {
     console.warn('scheduleBass error:', e.message);
   }
@@ -1945,11 +1964,9 @@ const instrParams = {
     distAmount:  50,    // 10–200   — waveshaper drive
   },
   bass: {
-    pitchEnvAmount: 2.2,  // 1.2–4    — pitch peak as multiple of target (the thump)
-    pitchDecay:     0.04, // 0.01–0.12 — how fast pitch falls to note
-    harmLevel:      0.15, // 0–0.4    — harmonic definition (0 = pure sub)
-    clickLevel:     0.6,  // 0.1–1.2  — pluck transient loudness
-    decayTime:      0.55, // 0.1–1.2  — note length / tail
+    sustain:       0.75,  // 0.3–1.0  — note length as fraction of beat
+    attackNoise:   0.5,   // 0.1–1.0  — bow/finger noise at onset
+    bodyResonance: 5,     // 2–12 dB  — body warmth boost
   },
   keys: {
     modRatio:    7,     // 1–14     — FM modulator harmonic
@@ -2041,11 +2058,9 @@ function tweakSound(m) {
     instrParams.drums.distAmount  = r(10, 180);
     statusMsg = 'DIALED IN';
   } else if (m === 'bass') {
-    instrParams.bass.pitchEnvAmount = r(1.3, 3.5);  // subtle thump to big drop
-    instrParams.bass.pitchDecay     = r(0.01, 0.10);
-    instrParams.bass.harmLevel      = r(0, 0.35);    // pure sub → defined tone
-    instrParams.bass.clickLevel     = r(0.2, 1.1);   // soft pluck → hard attack
-    instrParams.bass.decayTime      = r(0.15, 1.0);  // staccato → sustained
+    instrParams.bass.sustain       = r(0.3, 0.95);  // staccato → legato
+    instrParams.bass.attackNoise   = r(0.1, 0.9);   // soft → aggressive pluck
+    instrParams.bass.bodyResonance = r(2, 10);
     statusMsg = 'REPATCHED';
   } else if (m === 'keys') {
     instrParams.keys.modRatio     = ri(1, 13);

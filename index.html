@@ -1390,22 +1390,24 @@ let diggerFetchAbort  = null;
 // ---- DIGGER EFFECTS CHAIN ----
 let diggerFxChain = null;
 
+// All presets include gate:true — digger always has tempo-locked rhythm
 const FX_PRESETS = [
-  { name: 'CLEAN',      delay: false, gate: false, crush: false, duck: false, lofi: false },
-  { name: 'TAPE DELAY', delay: true,  gate: false, crush: false, duck: false, lofi: true  },
-  { name: 'TEMPO GATE', delay: false, gate: true,  crush: false, duck: false, lofi: false },
-  { name: 'BIT CRUSH',  delay: false, gate: false, crush: true,  duck: false, lofi: false },
-  { name: 'DUCKED',     delay: false, gate: false, crush: false, duck: true,  lofi: false },
+  { name: 'GATED',      delay: false, gate: true,  crush: false, duck: false, lofi: false },
+  { name: 'TAPE GATE',  delay: true,  gate: true,  crush: false, duck: false, lofi: true  },
+  { name: 'CHOPPED',    delay: false, gate: true,  crush: false, duck: true,  lofi: false },
+  { name: 'CRUSH GATE', delay: false, gate: true,  crush: true,  duck: false, lofi: false },
   { name: 'MANGLED',    delay: true,  gate: true,  crush: true,  duck: false, lofi: true  },
   { name: 'GHOST',      delay: true,  gate: true,  crush: false, duck: true,  lofi: true  },
-  { name: 'CRUSHER',    delay: false, gate: false, crush: true,  duck: true,  lofi: true  },
+  { name: 'WRECKED',    delay: true,  gate: true,  crush: true,  duck: true,  lofi: true  },
+  { name: 'SIDECHAIN',  delay: false, gate: true,  crush: false, duck: true,  lofi: true  },
 ];
 let currentFxPreset = 0;
 
 function teardownFxChain() {
   if (!diggerFxChain) return;
   try { diggerFxChain.nodes.forEach(n => { try { n.disconnect(); } catch(e){} }); } catch(e) {}
-  if (diggerFxChain.gateTimer) clearInterval(diggerFxChain.gateTimer);
+  // gateTimer is now an object with .clear() — duck is still a setInterval id
+  if (diggerFxChain.gateTimer && diggerFxChain.gateTimer.clear) diggerFxChain.gateTimer.clear();
   if (diggerFxChain.duckTimer) clearInterval(diggerFxChain.duckTimer);
   diggerFxChain = null;
 }
@@ -1447,21 +1449,39 @@ function buildFxChain(presetIdx) {
     current = delaySum;
   }
 
-  // TEMPO GATE
+  // TEMPO GATE — reads tempo live each tick so it tracks BPM changes
   let gateTimer = null;
   if (preset.gate) {
     const gateNode = ctx.createGain(); gateNode.gain.value = 1;
-    const gatePat = Math.random()<0.5 ? [1,0,1,0,1,0,1,0] : [1,1,0,1,1,0,0,1];
+    // Pick from several rhythmic patterns — straight, syncopated, dotted
+    const patterns = [
+      [1,0,1,0, 1,0,1,0],   // straight 8ths
+      [1,1,0,1, 1,0,0,1],   // syncopated
+      [1,0,0,1, 0,1,0,0],   // sparse
+      [1,0,1,1, 0,1,1,0],   // dense
+      [1,0,0,0, 1,0,1,0],   // half-note + pickup
+    ];
+    const gatePat = patterns[Math.floor(Math.random() * patterns.length)];
     let gateStep = 0;
-    gateTimer = setInterval(() => {
-      if (!gateNode||!ctx) return;
+    let lastInterval = null;
+
+    // Self-adjusting scheduler — recalculates step duration each tick from live tempo
+    function scheduleGateStep() {
+      if (!gateNode || !ctx || !diggerFxChain) return;
+      const liveBps = 60 / state.tempo;
+      const stepMs = (liveBps / 2) * 1000; // 8th note in ms
       const on = gatePat[gateStep % gatePat.length];
       const t = ctx.currentTime;
       gateNode.gain.cancelScheduledValues(t);
       gateNode.gain.setValueAtTime(gateNode.gain.value, t);
-      gateNode.gain.linearRampToValueAtTime(on ? 1 : 0.02, t + 0.005);
+      // Slightly softer gate open (0.92) for a bit of groove breathiness
+      gateNode.gain.linearRampToValueAtTime(on ? 0.95 : 0.015, t + 0.004);
       gateStep++;
-    }, (bps/2)*1000);
+      lastInterval = setTimeout(scheduleGateStep, stepMs);
+    }
+    scheduleGateStep();
+    // Store cancel fn on gateTimer so teardownFxChain can kill it
+    gateTimer = { clear: () => { if (lastInterval) clearTimeout(lastInterval); lastInterval = null; gateNode.gain.setValueAtTime(1, ctx.currentTime); } };
     current.connect(gateNode); current = gateNode; nodes.push(gateNode);
   }
 
@@ -1504,7 +1524,9 @@ function getDiggerDest() {
 }
 
 function reinterpretDiggerFx() {
-  let next = 1 + Math.floor(Math.random() * (FX_PRESETS.length - 1));
+  // Pick a different preset from current one
+  let next = Math.floor(Math.random() * FX_PRESETS.length);
+  if (next === currentFxPreset && FX_PRESETS.length > 1) next = (next + 1) % FX_PRESETS.length;
   currentFxPreset = next;
   buildFxChain(currentFxPreset);
   // Respawn from stored buffer rather than re-fetching or rewiring old node
@@ -1695,8 +1717,9 @@ function startDigger() {
     diggerGain.gain.value = 0.0001;
     diggerGain.connect(analyserNodes.digger);
   }
-  // Build initial fx chain (clean — effects added on reinterpret)
-  buildFxChain(0);
+  // Pick a random starting preset — always gated from the first note
+  currentFxPreset = Math.floor(Math.random() * FX_PRESETS.length);
+  buildFxChain(currentFxPreset);
 
   // Try a random wiki record first
   const idx = Math.floor(Math.random() * WIKI_CRATE.length);

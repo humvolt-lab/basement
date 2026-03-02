@@ -107,30 +107,42 @@
   }
 
   /* DISTORTION PEDAL */
-  #pedal-row { margin-top: 4px; }
-  .pedal-wrap {
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 4px 0;
+  #pedal-row { margin-top: 2px; }
+  .pedal-section {
+    width: 100%; padding: 6px 12px 8px;
+    border: 1px solid var(--border); border-radius: 4px;
   }
-  .pedal-label {
-    font-size: 9px; color: var(--textdim); letter-spacing: 0.05em;
-    white-space: nowrap; min-width: 32px;
+  .pedal-header {
+    text-align: center; font-size: 10px; color: var(--accent);
+    letter-spacing: 0.15em; margin-bottom: 8px;
+  }
+  .pedal-grid {
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .pedal-col {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .pedal-col-label {
+    font-size: 9px; color: var(--textdim); letter-spacing: 0.08em;
+  }
+  .pedal-wrap {
+    width: 100%; display: flex; align-items: center;
   }
   .pedal-val {
-    font-size: 11px; color: var(--accent); letter-spacing: 0.05em;
-    min-width: 32px; text-align: right;
+    font-size: 10px; color: var(--accent); letter-spacing: 0.05em;
+    text-align: center; min-height: 14px;
   }
   input[type=range] {
     -webkit-appearance: none; appearance: none;
-    height: 3px; border-radius: 2px;
+    width: 100%; height: 3px; border-radius: 2px;
     background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--pct, 0%), var(--dim) var(--pct, 0%));
     outline: none;
   }
   input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
-    width: 16px; height: 16px; border-radius: 50%;
+    width: 14px; height: 14px; border-radius: 50%;
     background: var(--accent); border: 2px solid var(--bg);
-    box-shadow: 0 0 6px rgba(200,168,75,0.4);
+    box-shadow: 0 0 5px rgba(200,168,75,0.4);
     cursor: pointer;
   }
 
@@ -667,14 +679,35 @@
     </div>
     <!-- DISTORTION PEDAL -->
     <div class="global-row" id="pedal-row">
-      <div class="global-knob-group" style="flex:3">
-        <label>DISTORTION</label>
-        <div class="pedal-wrap">
-          <span class="pedal-label">CLEAN</span>
-          <input type="range" id="pedal-slider" min="0" max="100" value="0"
-            oninput="setPedal(this.value/100); this.style.setProperty('--pct', this.value+'%')">
-          <span class="pedal-label">FUZZ</span>
-          <span id="pedal-val" class="pedal-val">OFF</span>
+      <div class="pedal-section">
+        <div class="pedal-header">— PEDAL —</div>
+        <div class="pedal-grid">
+          <div class="pedal-col">
+            <div class="pedal-col-label">DRIVE</div>
+            <div class="pedal-wrap">
+              <input type="range" id="pedal-drive" min="0" max="100" value="0"
+                oninput="setPedalDrive(this.value/100); this.style.setProperty('--pct',this.value+'%')">
+            </div>
+            <span id="pedal-drive-val" class="pedal-val">OFF</span>
+          </div>
+          <div class="pedal-col">
+            <div class="pedal-col-label">SHAPE</div>
+            <div class="pedal-wrap">
+              <input type="range" id="pedal-shape" min="0" max="100" value="30"
+                oninput="setPedalShape(this.value/100); this.style.setProperty('--pct',this.value+'%')"
+                style="--pct:30%">
+            </div>
+            <span id="pedal-shape-val" class="pedal-val">TUBE</span>
+          </div>
+          <div class="pedal-col">
+            <div class="pedal-col-label">TONE</div>
+            <div class="pedal-wrap">
+              <input type="range" id="pedal-tone" min="0" max="100" value="50"
+                oninput="setPedalTone(this.value/100); this.style.setProperty('--pct',this.value+'%')"
+                style="--pct:50%">
+            </div>
+            <span id="pedal-tone-val" class="pedal-val">FLAT</span>
+          </div>
         </div>
       </div>
     </div>
@@ -823,54 +856,140 @@
 // AUDIO ENGINE
 // ============================================================
 let ctx, masterGain, lofiFilter, wobbleLFO, wobbleGain;
-let pedalPreGain, pedalDist, pedalTone, pedalPostGain;
+let pedalPreGain, pedalDist, pedalTone, pedalPostGain, pedalLimiter;
 let pedalAmount = 0; // 0–1
 
-function makePedalCurve(amount) {
-  // amount 0 = clean passthrough, 1 = full fuzz
+// ---- DISTORTION PEDAL ENGINE ----
+// Parameters:
+//   drive  0–1  — how hard the signal is pushed into the waveshaper
+//   shape  0–1  — curve character: 0=warm tube tanh, 0.5=asymmetric crunch, 1=gated octave fuzz
+//   tone   0–1  — tilt EQ: 0=dark (lowpass), 0.5=flat, 1=bright (highpass shelf)
+
+let pedalDrive = 0;
+let pedalShape = 0.3;
+let pedalToneVal = 0.5;
+
+function makePedalCurve(drive, shape) {
   const n = 512;
   const curve = new Float32Array(n);
-  if (amount < 0.01) {
-    // Clean — identity curve
-    for (let i = 0; i < n; i++) curve[i] = (i * 2 / n) - 1;
+
+  if (drive < 0.01) {
+    for (let i = 0; i < n; i++) curve[i] = (i * 2 / n) - 1; // identity
     return curve;
   }
-  // Two-stage character: low drive = warm overdrive (tanh), high drive = fuzz (hard clip)
-  const drive = 1 + amount * 120;          // 1 → 121
-  const blend = Math.min(amount * 1.8, 1); // overdrive→fuzz crossfade
+
+  const gain = 1 + drive * 100; // input gain into shaper: 1→101
+
   for (let i = 0; i < n; i++) {
     const x = (i * 2 / n) - 1;
-    const od   = Math.tanh(drive * x) / Math.tanh(drive); // overdrive
-    const fuzz = Math.max(-1, Math.min(1, x * drive));     // hard clip fuzz
-    curve[i] = od * (1 - blend) + fuzz * blend;
+    const xg = Math.max(-1, Math.min(1, x * gain));
+
+    // Shape 0: symmetric tanh — warm, even harmonics (tube-ish)
+    const tube = Math.tanh(gain * x) / Math.tanh(gain);
+
+    // Shape 0.5: asymmetric hard clip — positive half clips harder (transistor crunch)
+    const posClip = x >= 0
+      ? Math.min(1,  x * gain * 1.4) 
+      : Math.tanh(gain * x * 0.8) / Math.tanh(gain * 0.8);
+    const crunch = posClip;
+
+    // Shape 1: half-wave rectify + hard clip — octave fuzz (squashes negatives)
+    const rectified = Math.abs(xg);        // full-wave rectify → octave up
+    const gated     = xg > 0 ? xg : xg * 0.05; // near-silence on negative = gate
+    const fuzz = (rectified * 0.6 + gated * 0.4);
+
+    // Crossfade between shapes
+    let y;
+    if (shape <= 0.5) {
+      y = tube * (1 - shape * 2) + crunch * (shape * 2);
+    } else {
+      const s = (shape - 0.5) * 2;
+      y = crunch * (1 - s) + fuzz * s;
+    }
+
+    curve[i] = Math.max(-1, Math.min(1, y));
   }
   return curve;
 }
 
-function setPedal(amount) {
-  pedalAmount = Math.max(0, Math.min(1, amount));
-  if (!pedalDist) return;
-
-  pedalDist.curve = makePedalCurve(pedalAmount);
-
-  // Pre-gain: boost into the waveshaper so low signals still clip
-  pedalPreGain.gain.setTargetAtTime(
-    1 + pedalAmount * 3.5, ctx.currentTime, 0.02
-  );
-
-  // Post-gain: compensate — distortion adds loudness, pull back
-  pedalPostGain.gain.setTargetAtTime(
-    1 - pedalAmount * 0.55, ctx.currentTime, 0.02
-  );
-
-  // Tone: high drive = roll off highs (fuzz gets fizzy) — tame it
-  pedalTone.frequency.setTargetAtTime(
-    8000 - pedalAmount * 5000, ctx.currentTime, 0.02
-  );
-
-  document.getElementById('pedal-val').textContent =
-    pedalAmount < 0.01 ? 'OFF' : Math.round(pedalAmount * 100) + '%';
+function pedalRmsCompensation(drive, shape) {
+  // Two factors raising apparent loudness:
+  //   1. Waveshaper clips peaks → raises RMS → sounds louder
+  //   2. Added harmonics fill the frequency spectrum → louder perceptually
+  // Fuzz (shape=1) raises RMS more than tube (shape=0) at the same drive
+  // These values are tuned so the limiter catches the residual rather than allowing jumps
+  if (drive < 0.01) return 1.0;
+  const base  = Math.pow(1 - drive, 0.55);         // nonlinear rolloff
+  const shapeBoost = 1 + shape * drive * 0.4;       // fuzz needs more pullback
+  return Math.max(0.18, base / shapeBoost);
 }
+
+function applyPedalTone(toneVal) {
+  if (!pedalTone) return;
+  // toneVal 0–1: tilt filter
+  // 0 = dark — lowpass at 1.5kHz
+  // 0.5 = flat — lowpass at 18kHz (open)
+  // 1 = bright — highpass shelf cuts lows, boosts highs
+  if (toneVal < 0.5) {
+    pedalTone.type = 'lowpass';
+    const f = 1500 + (toneVal / 0.5) * 16500; // 1.5k → 18k
+    pedalTone.frequency.setTargetAtTime(f, ctx.currentTime, 0.03);
+    pedalTone.Q.value = 0.5;
+  } else {
+    pedalTone.type = 'highshelf';
+    const t = (toneVal - 0.5) / 0.5;
+    pedalTone.frequency.setTargetAtTime(1200, ctx.currentTime, 0.03);
+    pedalTone.gain.setTargetAtTime(t * 9, ctx.currentTime, 0.03); // up to +9dB high shelf
+  }
+}
+
+function updatePedalDisplay() {
+  const driveEl = document.getElementById('pedal-drive-val');
+  const shapeEl = document.getElementById('pedal-shape-val');
+  const toneEl  = document.getElementById('pedal-tone-val');
+  if (driveEl) driveEl.textContent = pedalDrive < 0.01 ? 'OFF' : Math.round(pedalDrive * 100) + '%';
+  if (shapeEl) {
+    const labels = ['TUBE','','CRUNCH','','FUZZ'];
+    const idx = Math.round(pedalShape * 4);
+    shapeEl.textContent = labels[idx] || Math.round(pedalShape * 100) + '%';
+  }
+  if (toneEl) {
+    const t = pedalToneVal;
+    toneEl.textContent = t < 0.35 ? 'DARK' : t > 0.65 ? 'BRIGHT' : 'FLAT';
+  }
+}
+
+function setPedalDrive(v) {
+  pedalDrive = Math.max(0, Math.min(1, v));
+  if (!pedalDist) return;
+  pedalDist.curve = makePedalCurve(pedalDrive, pedalShape);
+  pedalPreGain.gain.setTargetAtTime(1 + pedalDrive * 4, ctx.currentTime, 0.02);
+  pedalPostGain.gain.setTargetAtTime(pedalRmsCompensation(pedalDrive, pedalShape), ctx.currentTime, 0.02);
+  updatePedalDisplay();
+  const el = document.getElementById('pedal-drive');
+  if (el) el.style.setProperty('--pct', Math.round(pedalDrive * 100) + '%');
+}
+
+function setPedalShape(v) {
+  pedalShape = Math.max(0, Math.min(1, v));
+  if (!pedalDist) return;
+  pedalDist.curve = makePedalCurve(pedalDrive, pedalShape);
+  pedalPostGain.gain.setTargetAtTime(pedalRmsCompensation(pedalDrive, pedalShape), ctx.currentTime, 0.02);
+  updatePedalDisplay();
+  const el = document.getElementById('pedal-shape');
+  if (el) el.style.setProperty('--pct', Math.round(pedalShape * 100) + '%');
+}
+
+function setPedalTone(v) {
+  pedalToneVal = Math.max(0, Math.min(1, v));
+  applyPedalTone(pedalToneVal);
+  updatePedalDisplay();
+  const el = document.getElementById('pedal-tone');
+  if (el) el.style.setProperty('--pct', Math.round(pedalToneVal * 100) + '%');
+}
+
+// Legacy single-slider compat (not used but keep to avoid errors)
+function setPedal(amount) { setPedalDrive(amount); }
 let analyserNodes = {};
 
 const state = {
@@ -1157,13 +1276,23 @@ async function initAudio() {
 
   pedalDist.curve = makePedalCurve(0); // flat/clean at start
 
-  // Re-wire master: lofiFilter → masterGain → pedal chain → masterComp → dest
+  // True limiter — hard ceiling after pedal, before master comp
+  // Brickwall: threshold -1dBFS, ratio 20:1, near-zero attack
+  pedalLimiter = ctx.createDynamicsCompressor();
+  pedalLimiter.threshold.value = -1.0;   // ceiling at -1 dBFS
+  pedalLimiter.knee.value      = 0;      // hard knee — no soft ramp
+  pedalLimiter.ratio.value     = 20;     // 20:1 ≈ brickwall
+  pedalLimiter.attack.value    = 0.001;  // 1ms — catches transients
+  pedalLimiter.release.value   = 0.10;   // 100ms — releases cleanly
+
+  // Re-wire: masterGain → preGain → dist → tone → postGain → limiter → masterComp → dest
   masterGain.disconnect();
   masterGain.connect(pedalPreGain);
   pedalPreGain.connect(pedalDist);
   pedalDist.connect(pedalTone);
   pedalTone.connect(pedalPostGain);
-  pedalPostGain.connect(masterComp);
+  pedalPostGain.connect(pedalLimiter);
+  pedalLimiter.connect(masterComp);
   masterComp.connect(ctx.destination);
 
   document.getElementById('splash').style.display = 'none';

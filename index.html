@@ -2055,7 +2055,7 @@ let diggerGain        = null;
 let diggerFilter      = null;  // tone shaper — die controls this
 let currentDiggerNode = null;
 let currentAudioBuf   = null;  // store decoded buffer so we can respawn
-let diggerMode        = 'synth';
+let diggerMode        = 'idle';
 let currentWikiIdx    = -1;
 let diggerFetchAbort  = null;
 
@@ -2333,29 +2333,29 @@ async function tryFetchWikiRecord(idx) {
 }
 
 function fallbackToSynth() {
-  diggerMode = 'synth';
-  spawnDiggerTexture();
+  // Instead of falling back to synth noise, cleanly shut the digger off
+  // User will need to hit play again to load a new sample
+  stopMusician('digger');
+  setStatus('digger', '— NO SIGNAL —');
 }
 
 function flipRecord() {
   if (!state.musicians.digger.playing) return;
 
-  // 70% chance wiki, 30% synth
-  if (Math.random() < 0.7 && WIKI_CRATE.length > 0) {
-    let next = Math.floor(Math.random() * WIKI_CRATE.length);
-    if (next === currentWikiIdx) next = (next + 1) % WIKI_CRATE.length;
-    // Fade out current
-    if (diggerGain) {
-      diggerGain.gain.cancelScheduledValues(ctx.currentTime);
-      diggerGain.gain.setValueAtTime(diggerGain.gain.value, ctx.currentTime);
-      diggerGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
-    }
-    if (currentDiggerNode) { try { setTimeout(() => { try { currentDiggerNode.stop(); } catch(e){} }, 1600); } catch(e){} }
-    setTimeout(() => tryFetchWikiRecord(next), 800);
-  } else {
-    if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e){} }
-    diggerMode = 'synth';
-    spawnDiggerTexture();
+  // Always try a new wiki record — no synth fallback
+  let next = Math.floor(Math.random() * WIKI_CRATE.length);
+  if (next === currentWikiIdx && WIKI_CRATE.length > 1) next = (next + 1) % WIKI_CRATE.length;
+
+  // Fade out current
+  if (diggerGain) {
+    diggerGain.gain.cancelScheduledValues(ctx.currentTime);
+    diggerGain.gain.setValueAtTime(diggerGain.gain.value, ctx.currentTime);
+    diggerGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
+  }
+  if (currentDiggerNode) { try { setTimeout(() => { try { currentDiggerNode.stop(); } catch(e){} }, 1600); } catch(e){} }
+  setTimeout(() => tryFetchWikiRecord(next), 800);
+
+
   }
 }
 
@@ -2463,13 +2463,9 @@ function startDigger() {
   currentFxPreset = Math.floor(Math.random() * FX_PRESETS.length);
   buildFxChain(currentFxPreset);
 
-  // Try a random wiki record first
+  // Load a random wiki record — plays looped until user stops or ↻ flips it
   const idx = Math.floor(Math.random() * WIKI_CRATE.length);
   tryFetchWikiRecord(idx);
-  // Periodic flip every 30–60s
-  diggerInterval = setInterval(() => {
-    if (state.musicians.digger.playing) flipRecord();
-  }, 30000 + Math.random() * 30000);
 }
 
 function stopDigger() {
@@ -2487,7 +2483,7 @@ function stopDigger() {
   }
   currentWikiIdx = -1;
   currentAudioBuf = null;
-  diggerMode = 'synth';
+  diggerMode = 'idle';
   teardownFxChain();
 }
 
@@ -2551,7 +2547,7 @@ function stopMusician(m) {
   icon.setAttribute('points', '5,2 14,8 5,14');
   icon.setAttribute('fill', '#666');
 
-  setStatus(m, '— OFFLINE —');
+  setStatus(m, m === 'digger' ? '— NO SIGNAL —' : '— OFFLINE —');
   if (m === 'digger') stopDigger();
   stopSchedulerIfNone();
 }
@@ -2774,8 +2770,6 @@ function reinterpret(m) {
     }, 1400);
   } else if (m === 'digger') {
     if (diggerMode === 'wiki' && currentAudioBuf) {
-      // 50% chance: seek to a new loop point on same record
-      // 50% chance: flip to a new record entirely
       if (Math.random() < 0.5) {
         spawnFromBuffer(currentAudioBuf);
         setStatus('digger', '↻ NEW CUE');
@@ -2784,8 +2778,10 @@ function reinterpret(m) {
         setStatus('digger', '⊙ FLIPPING...');
       }
     } else {
-      flipRecord();
-      setStatus('digger', '⊙ FLIPPING...');
+      // Nothing loaded — try fetching a fresh record
+      const idx = Math.floor(Math.random() * WIKI_CRATE.length);
+      tryFetchWikiRecord(idx);
+      setStatus('digger', '⊙ SEARCHING...');
     }
     setTimeout(() => { if (state.musicians.digger.playing) setStatus('digger', getLockedStatus('digger')); }, 2000);
   }

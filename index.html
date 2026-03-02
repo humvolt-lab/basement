@@ -106,6 +106,34 @@
     padding: env(safe-area-inset-top, 8px) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 0);
   }
 
+  /* DISTORTION PEDAL */
+  #pedal-row { margin-top: 4px; }
+  .pedal-wrap {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 4px 0;
+  }
+  .pedal-label {
+    font-size: 9px; color: var(--textdim); letter-spacing: 0.05em;
+    white-space: nowrap; min-width: 32px;
+  }
+  .pedal-val {
+    font-size: 11px; color: var(--accent); letter-spacing: 0.05em;
+    min-width: 32px; text-align: right;
+  }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    height: 3px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--pct, 0%), var(--dim) var(--pct, 0%));
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--bg);
+    box-shadow: 0 0 6px rgba(200,168,75,0.4);
+    cursor: pointer;
+  }
+
   /* GLOBAL CONTROLS */
   #global {
     background: var(--panel);
@@ -637,6 +665,19 @@
         </div>
       </div>
     </div>
+    <!-- DISTORTION PEDAL -->
+    <div class="global-row" id="pedal-row">
+      <div class="global-knob-group" style="flex:3">
+        <label>DISTORTION</label>
+        <div class="pedal-wrap">
+          <span class="pedal-label">CLEAN</span>
+          <input type="range" id="pedal-slider" min="0" max="100" value="0"
+            oninput="setPedal(this.value/100); this.style.setProperty('--pct', this.value+'%')">
+          <span class="pedal-label">FUZZ</span>
+          <span id="pedal-val" class="pedal-val">OFF</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- BAND -->
@@ -782,6 +823,54 @@
 // AUDIO ENGINE
 // ============================================================
 let ctx, masterGain, lofiFilter, wobbleLFO, wobbleGain;
+let pedalPreGain, pedalDist, pedalTone, pedalPostGain;
+let pedalAmount = 0; // 0–1
+
+function makePedalCurve(amount) {
+  // amount 0 = clean passthrough, 1 = full fuzz
+  const n = 512;
+  const curve = new Float32Array(n);
+  if (amount < 0.01) {
+    // Clean — identity curve
+    for (let i = 0; i < n; i++) curve[i] = (i * 2 / n) - 1;
+    return curve;
+  }
+  // Two-stage character: low drive = warm overdrive (tanh), high drive = fuzz (hard clip)
+  const drive = 1 + amount * 120;          // 1 → 121
+  const blend = Math.min(amount * 1.8, 1); // overdrive→fuzz crossfade
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2 / n) - 1;
+    const od   = Math.tanh(drive * x) / Math.tanh(drive); // overdrive
+    const fuzz = Math.max(-1, Math.min(1, x * drive));     // hard clip fuzz
+    curve[i] = od * (1 - blend) + fuzz * blend;
+  }
+  return curve;
+}
+
+function setPedal(amount) {
+  pedalAmount = Math.max(0, Math.min(1, amount));
+  if (!pedalDist) return;
+
+  pedalDist.curve = makePedalCurve(pedalAmount);
+
+  // Pre-gain: boost into the waveshaper so low signals still clip
+  pedalPreGain.gain.setTargetAtTime(
+    1 + pedalAmount * 3.5, ctx.currentTime, 0.02
+  );
+
+  // Post-gain: compensate — distortion adds loudness, pull back
+  pedalPostGain.gain.setTargetAtTime(
+    1 - pedalAmount * 0.55, ctx.currentTime, 0.02
+  );
+
+  // Tone: high drive = roll off highs (fuzz gets fizzy) — tame it
+  pedalTone.frequency.setTargetAtTime(
+    8000 - pedalAmount * 5000, ctx.currentTime, 0.02
+  );
+
+  document.getElementById('pedal-val').textContent =
+    pedalAmount < 0.01 ? 'OFF' : Math.round(pedalAmount * 100) + '%';
+}
 let analyserNodes = {};
 
 const state = {
@@ -1053,9 +1142,28 @@ async function initAudio() {
   masterComp.attack.value    = 0.005;
   masterComp.release.value   = 0.30;
 
-  // Re-wire master: insert masterComp between masterGain and destination
+  // Distortion pedal — sits between masterGain and masterComp
+  // Off by default (drive=0 → waveshaper passes clean)
+  pedalPreGain  = ctx.createGain();
+  pedalDist     = ctx.createWaveShaper();
+  pedalTone     = ctx.createBiquadFilter();   // presence/tone control
+  pedalPostGain = ctx.createGain();
+
+  pedalPreGain.gain.value  = 1;      // driven up when pedal engaged
+  pedalTone.type           = 'lowpass';
+  pedalTone.frequency.value = 8000;  // tone knob — cuts highs
+  pedalTone.Q.value         = 0.5;
+  pedalPostGain.gain.value  = 1;     // compensate for volume change
+
+  pedalDist.curve = makePedalCurve(0); // flat/clean at start
+
+  // Re-wire master: lofiFilter → masterGain → pedal chain → masterComp → dest
   masterGain.disconnect();
-  masterGain.connect(masterComp);
+  masterGain.connect(pedalPreGain);
+  pedalPreGain.connect(pedalDist);
+  pedalDist.connect(pedalTone);
+  pedalTone.connect(pedalPostGain);
+  pedalPostGain.connect(masterComp);
   masterComp.connect(ctx.destination);
 
   document.getElementById('splash').style.display = 'none';
@@ -1815,6 +1923,7 @@ const WIKI_CRATE = [
 
 let diggerInterval    = null;
 let diggerGain        = null;
+let diggerFilter      = null;  // tone shaper — die controls this
 let currentDiggerNode = null;
 let currentAudioBuf   = null;  // store decoded buffer so we can respawn
 let diggerMode        = 'synth';
@@ -2019,7 +2128,9 @@ function spawnFromBuffer(audioBuf) {
   if (currentDiggerNode) { try { currentDiggerNode.stop(); } catch(e) {} }
 
   // Loop length: 1, 2, or 4 bars — weighted toward shorter for more hypnotic feel
-  const barOptions = [1, 1, 2, 2, 4];
+  // Density controls loop length: I=long (4-8 bars), II=medium (1-4), III=short (0.5-1)
+  const c = state.musicians.digger.complexity;
+  const barOptions = c === 1 ? [4, 4, 8] : c === 2 ? [1, 2, 2, 4] : [0.5, 0.5, 1];
   const loopBars   = barOptions[Math.floor(Math.random() * barOptions.length)];
   const loopPoint  = pickLoopPoint(audioBuf, loopBars);
 
@@ -2071,11 +2182,17 @@ async function tryFetchWikiRecord(idx) {
     currentWikiIdx = idx;
 
     // Fade in diggerGain
-    const targetVol = 0.15 + state.musicians.digger.complexity * 0.07;
+    const targetVol = 0.32; // fixed volume — density now controls loop length, not volume
     diggerGain.gain.cancelScheduledValues(ctx.currentTime);
     diggerGain.gain.setValueAtTime(diggerGain.gain.value || 0.0001, ctx.currentTime);
     diggerGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 3);
 
+    // Reset digger filter to clean on new record
+    if (diggerFilter) {
+      diggerFilter.type = 'lowpass';
+      diggerFilter.frequency.setTargetAtTime(18000, ctx.currentTime, 0.1);
+      diggerFilter.Q.value = 0.3;
+    }
     spawnFromBuffer(audioBuf);
     setStatus('digger', '▸ ' + entry.label);
 
@@ -2189,7 +2306,7 @@ function spawnDiggerTexture() {
     default:       src = makeVinylCrackle(dest, dur);
   }
   if (diggerGain) {
-    const vol = 0.1 + state.musicians.digger.complexity * 0.08;
+    const vol = 0.32; // fixed volume — density controls loop length
     diggerGain.gain.cancelScheduledValues(ctx.currentTime);
     diggerGain.gain.setValueAtTime(diggerGain.gain.value || 0.0001, ctx.currentTime);
     diggerGain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 3);
@@ -2203,7 +2320,15 @@ function startDigger() {
   if (!diggerGain) {
     diggerGain = ctx.createGain();
     diggerGain.gain.value = 0.0001;
-    diggerGain.connect(analyserNodes.digger);
+
+    // Tone shaper — die randomises filter type/freq/Q on the live signal
+    diggerFilter = ctx.createBiquadFilter();
+    diggerFilter.type = 'lowpass';
+    diggerFilter.frequency.value = 18000; // wide open = clean by default
+    diggerFilter.Q.value = 0.3;
+
+    diggerGain.connect(diggerFilter);
+    diggerFilter.connect(analyserNodes.digger);
   }
   // Pick a random starting preset — always gated from the first note
   currentFxPreset = Math.floor(Math.random() * FX_PRESETS.length);
@@ -2462,10 +2587,22 @@ function tweakSound(m) {
     instrParams.keys.noteLength   = r(0.8, 2.4);
     statusMsg = 'NEW TONE';
   } else if (m === 'digger') {
-    instrParams.digger.filterFreq   = r(300, 6000);
-    instrParams.digger.filterQ      = r(0.1, 4);
-    instrParams.digger.clickDensity = r(0.0003, 0.012);
+    // Randomise the live diggerFilter — audibly reshapes the record
+    if (diggerFilter) {
+      const filterTypes = ['lowpass','highpass','bandpass','lowpass','lowpass'];
+      const ft = filterTypes[Math.floor(Math.random() * filterTypes.length)];
+      diggerFilter.type = ft;
+      diggerFilter.frequency.setTargetAtTime(200 + Math.random() * 7000, ctx.currentTime, 0.1);
+      diggerFilter.Q.value = 0.3 + Math.random() * 6;
+    }
+    // Randomise playback rate on live node — subtle pitch shift (0.85–1.2x)
+    if (currentDiggerNode) {
+      const rate = 0.85 + Math.random() * 0.35;
+      currentDiggerNode.playbackRate.setTargetAtTime(rate, ctx.currentTime, 0.15);
+    }
+    // Pick a new loop point from the same buffer
     const fxName = reinterpretDiggerFx();
+    instrParams.digger.clickDensity = r(0.0003, 0.012);
     statusMsg = fxName;
   }
 
@@ -2508,11 +2645,16 @@ function reinterpret(m) {
     }, 1400);
   } else if (m === 'digger') {
     if (diggerMode === 'wiki' && currentAudioBuf) {
-      // Stay on the same record, just change the fx chain
-      const fxName = reinterpretDiggerFx();
-      setStatus('digger', '↻ ' + fxName);
+      // 50% chance: seek to a new loop point on same record
+      // 50% chance: flip to a new record entirely
+      if (Math.random() < 0.5) {
+        spawnFromBuffer(currentAudioBuf);
+        setStatus('digger', '↻ NEW CUE');
+      } else {
+        flipRecord();
+        setStatus('digger', '⊙ FLIPPING...');
+      }
     } else {
-      // No record loaded yet — flip to a new one
       flipRecord();
       setStatus('digger', '⊙ FLIPPING...');
     }

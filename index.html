@@ -1180,6 +1180,7 @@ function noteInScale(octave, degree) {
 }
 
 async function initAudio() {
+  try {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   await ctx.resume();
 
@@ -1274,7 +1275,7 @@ async function initAudio() {
   pedalTone.Q.value         = 0.5;
   pedalPostGain.gain.value  = 1;     // compensate for volume change
 
-  pedalDist.curve = makePedalCurve(0); // flat/clean at start
+  pedalDist.curve = makePedalCurve(0, 0.3); // flat/clean at start
 
   // True limiter — hard ceiling after pedal, before master comp
   // Brickwall: threshold -1dBFS, ratio 20:1, near-zero attack
@@ -1301,6 +1302,10 @@ async function initAudio() {
   initKnobs();
   initDice();
   startVisuals();
+  } catch(e) {
+    console.error('initAudio failed:', e);
+    alert('Audio init error: ' + e.message);
+  }
 }
 
 // ============================================================
@@ -2354,9 +2359,6 @@ function flipRecord() {
   }
   if (currentDiggerNode) { try { setTimeout(() => { try { currentDiggerNode.stop(); } catch(e){} }, 1600); } catch(e){} }
   setTimeout(() => tryFetchWikiRecord(next), 800);
-
-
-  }
 }
 
 // ---- SYNTH TEXTURE FALLBACK ----

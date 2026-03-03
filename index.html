@@ -106,6 +106,34 @@
     padding: env(safe-area-inset-top, 8px) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 0);
   }
 
+  /* KEY/MODE TOGGLE BUTTONS */
+  .key-mode-toggles {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+  }
+  .key-mode-toggles .mode-grid { flex: 1; }
+  .toggle-btn {
+    background: transparent;
+    border: 1px solid var(--dim);
+    color: var(--textdim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    padding: 3px 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 28px;
+    text-align: center;
+    transition: all 0.2s;
+  }
+  .toggle-btn.toggle-active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(200,168,75,0.12);
+    box-shadow: 0 0 6px rgba(200,168,75,0.2);
+  }
+  .toggle-btn:active { opacity: 0.7; }
+
   /* DISTORTION PEDAL */
   #pedal-row { margin-top: 2px; }
   .pedal-section {
@@ -655,25 +683,29 @@
       <div class="global-knob-group" style="flex:3">
         <label>KEY & MODE</label>
         <div class="key-grid" id="key-grid">
-          <button class="key-btn active" onclick="setKey(0)">C</button>
-          <button class="key-btn black" onclick="setKey(1)">C#</button>
-          <button class="key-btn" onclick="setKey(2)">D</button>
-          <button class="key-btn black" onclick="setKey(3)">D#</button>
-          <button class="key-btn" onclick="setKey(4)">E</button>
-          <button class="key-btn" onclick="setKey(5)">F</button>
-          <button class="key-btn black" onclick="setKey(6)">F#</button>
-          <button class="key-btn" onclick="setKey(7)">G</button>
-          <button class="key-btn black" onclick="setKey(8)">G#</button>
-          <button class="key-btn" onclick="setKey(9)">A</button>
-          <button class="key-btn black" onclick="setKey(10)">A#</button>
-          <button class="key-btn" onclick="setKey(11)">B</button>
+          <button class="key-btn active" onclick="setKey(0, true)">C</button>
+          <button class="key-btn black" onclick="setKey(1, true)">C#</button>
+          <button class="key-btn" onclick="setKey(2, true)">D</button>
+          <button class="key-btn black" onclick="setKey(3, true)">D#</button>
+          <button class="key-btn" onclick="setKey(4, true)">E</button>
+          <button class="key-btn" onclick="setKey(5, true)">F</button>
+          <button class="key-btn black" onclick="setKey(6, true)">F#</button>
+          <button class="key-btn" onclick="setKey(7, true)">G</button>
+          <button class="key-btn black" onclick="setKey(8, true)">G#</button>
+          <button class="key-btn" onclick="setKey(9, true)">A</button>
+          <button class="key-btn black" onclick="setKey(10, true)">A#</button>
+          <button class="key-btn" onclick="setKey(11, true)">B</button>
         </div>
-        <div class="mode-grid" id="mode-grid">
-          <button class="mode-btn active" onclick="setMode('minor')">MIN</button>
-          <button class="mode-btn" onclick="setMode('major')">MAJ</button>
-          <button class="mode-btn" onclick="setMode('dorian')">DOR</button>
-          <button class="mode-btn" onclick="setMode('phrygian')">PHR</button>
-          <button class="mode-btn" onclick="setMode('mixolydian')">MIX</button>
+        <div class="key-mode-toggles">
+          <button id="key-toggle-btn" class="toggle-btn" onclick="toggleKey()" title="Select two keys to toggle">↔</button>
+          <div class="mode-grid" id="mode-grid">
+            <button class="mode-btn active" onclick="setMode('minor', true)">MIN</button>
+            <button class="mode-btn" onclick="setMode('major', true)">MAJ</button>
+            <button class="mode-btn" onclick="setMode('dorian', true)">DOR</button>
+            <button class="mode-btn" onclick="setMode('phrygian', true)">PHR</button>
+            <button class="mode-btn" onclick="setMode('mixolydian', true)">MIX</button>
+          </div>
+          <button id="mode-toggle-btn" class="toggle-btn" onclick="toggleMode()" title="Select two modes to toggle">↔</button>
         </div>
       </div>
     </div>
@@ -1024,7 +1056,12 @@ state.mode = 'minor';
 let pendingKey  = null; // { semitone }
 let pendingMode = null; // { mode }
 
-function setKey(semitone) {
+// Last two user-selected keys/modes — for ping-pong toggle
+// null = user has not manually selected; autoJam roams freely
+let userKeyHistory  = [];  // max 2 entries, most recent last
+let userModeHistory = [];  // max 2 entries, most recent last
+
+function setKey(semitone, fromUser = false) {
   pendingKey = { semitone };
   // Update UI immediately so button feels responsive
   document.querySelectorAll('.key-btn').forEach((b, i) => {
@@ -1034,9 +1071,43 @@ function setKey(semitone) {
   ['bass','keys'].forEach(m => {
     if (state.musicians[m].playing) setStatus(m, '~ FINDING KEY...');
   });
+  // Track user-selected keys for ping-pong toggle
+  if (fromUser) {
+    // Only push if different from the most recent
+    if (userKeyHistory[userKeyHistory.length - 1] !== semitone) {
+      userKeyHistory.push(semitone);
+      if (userKeyHistory.length > 2) userKeyHistory.shift();
+    }
+    updateKeyToggleBtn();
+  }
 }
 
-function setMode(mode) {
+function toggleKey() {
+  // Ping-pong between last two user-selected keys
+  if (userKeyHistory.length < 2) return;
+  const current = state.key;
+  // Pick whichever of the two isn't current
+  const next = userKeyHistory[0] === current ? userKeyHistory[1] : userKeyHistory[0];
+  setKey(next, true);
+}
+
+function updateKeyToggleBtn() {
+  const btn = document.getElementById('key-toggle-btn');
+  if (!btn) return;
+  const active = userKeyHistory.length >= 2;
+  btn.classList.toggle('toggle-active', active);
+  if (active) {
+    const a = KEYS[userKeyHistory[0]];
+    const b = KEYS[userKeyHistory[1]];
+    btn.title = a + ' ↔ ' + b;
+    btn.textContent = a + '↔' + b;
+  } else {
+    btn.textContent = '↔';
+    btn.title = 'Select two keys to toggle';
+  }
+}
+
+function setMode(mode, fromUser = false) {
   pendingMode = { mode };
   const map = { minor:'MIN', major:'MAJ', dorian:'DOR', phrygian:'PHR', mixolydian:'MIX' };
   document.querySelectorAll('.mode-btn').forEach(b => {
@@ -1045,6 +1116,38 @@ function setMode(mode) {
   ['bass','keys'].forEach(m => {
     if (state.musicians[m].playing) setStatus(m, '~ DRIFTING...');
   });
+  // Track user-selected modes for ping-pong toggle
+  if (fromUser) {
+    if (userModeHistory[userModeHistory.length - 1] !== mode) {
+      userModeHistory.push(mode);
+      if (userModeHistory.length > 2) userModeHistory.shift();
+    }
+    updateModeToggleBtn();
+  }
+}
+
+function toggleMode() {
+  if (userModeHistory.length < 2) return;
+  const current = state.mode;
+  const next = userModeHistory[0] === current ? userModeHistory[1] : userModeHistory[0];
+  setMode(next, true);
+}
+
+function updateModeToggleBtn() {
+  const btn = document.getElementById('mode-toggle-btn');
+  if (!btn) return;
+  const active = userModeHistory.length >= 2;
+  btn.classList.toggle('toggle-active', active);
+  const shortMap = { minor:'MIN', major:'MAJ', dorian:'DOR', phrygian:'PHR', mixolydian:'MIX' };
+  if (active) {
+    const a = shortMap[userModeHistory[0]];
+    const b = shortMap[userModeHistory[1]];
+    btn.title = a + ' ↔ ' + b;
+    btn.textContent = a + '↔' + b;
+  } else {
+    btn.textContent = '↔';
+    btn.title = 'Select two modes to toggle';
+  }
 }
 
 // Called by scheduler at beat 0 (measure boundary) — applies any pending changes

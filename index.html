@@ -1379,23 +1379,93 @@ function scheduleTick() {
 // ============================================================
 // DRUM SYNTHESIS (808-style)
 // ============================================================
-function make808Kick(t, gain=0.9) {
-  const dest = analyserNodes.drums;
-  const p = instrParams.drums;
+function makeKick(t, gain=0.9) {
+  // Natural acoustic kick drum: 4 layers
+  //   1. STICK — woody click of beater hitting head (6-8ms shaped noise)
+  //   2. HEAD — pitch-swept sine: the drumhead's fundamental resonance
+  //      Real kicks start ~150-200Hz and fall to ~50-70Hz in first 30ms
+  //   3. BODY — the shell boom: slower-decaying sine an octave below head
+  //      This is the "thud" you feel in your chest — key to naturalness
+  //   4. AIR — subsonic bloom (30-50Hz) that fills the room
+  const dest  = analyserNodes.drums;
+  const p     = instrParams.drums;
   const safeT = Math.max(t, ctx.currentTime + 0.001);
-  const osc = ctx.createOscillator();
-  const env = ctx.createGain();
-  const dist = ctx.createWaveShaper();
-  dist.curve = makeDistCurve(p.distAmount);
-  osc.connect(dist);
-  dist.connect(env);
-  env.connect(dest);
-  osc.type = 'sine';
-  osc.frequency.value = p.kickPitch * 0.28;
-  env.gain.setValueAtTime(gain, safeT);
-  env.gain.exponentialRampToValueAtTime(0.0001, safeT + p.kickDecay * 0.8);
-  osc.start(safeT); osc.stop(safeT + p.kickDecay + 0.05);
+  const decay = p.kickDecay;   // 0.3–0.9 — shorter = punchy, longer = boomy
+  const pitch = p.kickPitch;   // ~60Hz fundamental
+
+  // ---- LAYER 1: STICK CLICK ----
+  // 7ms bandpassed noise — woody transient, not electronic click
+  const clickDur = 0.007;
+  const nSamps = Math.ceil(ctx.sampleRate * (clickDur + 0.01));
+  const clickBuf = ctx.createBuffer(1, nSamps, ctx.sampleRate);
+  const cd = clickBuf.getChannelData(0);
+  for (let i = 0; i < cd.length; i++) {
+    // Exponential decay shape — sharp attack, immediate tail-off
+    cd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.003));
+  }
+  const click    = ctx.createBufferSource(); click.buffer = clickBuf;
+  const clickBP  = ctx.createBiquadFilter();
+  clickBP.type   = 'bandpass';
+  clickBP.frequency.value = 280;  // center around wood/plastic beater sound
+  clickBP.Q.value = 1.2;
+  const clickG   = ctx.createGain(); clickG.gain.value = gain * 1.1;
+  click.connect(clickBP); clickBP.connect(clickG); clickG.connect(dest);
+  click.start(safeT); click.stop(safeT + clickDur + 0.02);
+
+  // ---- LAYER 2: HEAD RESONANCE ----
+  // Sine swept fast — the drumhead's fundamental pitch
+  // Starts around 3× target, falls to target in ~30ms (membrane settling)
+  const head = ctx.createOscillator(); head.type = 'sine';
+  head.frequency.setValueAtTime(pitch * 3.2, safeT);
+  head.frequency.exponentialRampToValueAtTime(pitch * 1.1, safeT + 0.012);
+  head.frequency.exponentialRampToValueAtTime(pitch * 0.85, safeT + 0.03);
+  head.frequency.exponentialRampToValueAtTime(Math.max(pitch * 0.65, 35), safeT + decay * 0.5);
+  const headEnv = ctx.createGain();
+  headEnv.gain.setValueAtTime(0.0001, safeT);
+  headEnv.gain.linearRampToValueAtTime(gain * 0.85, safeT + 0.002); // fast attack bloom
+  headEnv.gain.exponentialRampToValueAtTime(gain * 0.3, safeT + 0.04);
+  headEnv.gain.exponentialRampToValueAtTime(0.0001, safeT + decay * 0.65);
+  head.connect(headEnv); headEnv.connect(dest);
+  head.start(safeT); head.stop(safeT + decay + 0.05);
+
+  // ---- LAYER 3: BODY / SHELL THUD ----
+  // This is the natural drum "thud" — slower pitch fall, longer sustain
+  // Sine at pitch, barely drops, decays slowly: gives the chest-felt boom
+  const body = ctx.createOscillator(); body.type = 'sine';
+  body.frequency.setValueAtTime(pitch * 1.2, safeT);
+  body.frequency.exponentialRampToValueAtTime(pitch, safeT + 0.05);  // barely moves
+  body.frequency.exponentialRampToValueAtTime(Math.max(pitch * 0.8, 38), safeT + decay);
+  const bodyLP = ctx.createBiquadFilter(); bodyLP.type = 'lowpass';
+  bodyLP.frequency.value = 120; // keep only the low thump, kill highs
+  bodyLP.Q.value = 0.7;
+  const bodyEnv = ctx.createGain();
+  bodyEnv.gain.setValueAtTime(0.0001, safeT);
+  bodyEnv.gain.linearRampToValueAtTime(gain * 1.1, safeT + 0.008); // bloom
+  bodyEnv.gain.exponentialRampToValueAtTime(gain * 0.7, safeT + 0.06);
+  bodyEnv.gain.exponentialRampToValueAtTime(0.0001, safeT + decay + 0.1); // outlasts head
+  body.connect(bodyLP); bodyLP.connect(bodyEnv); bodyEnv.connect(dest);
+  body.start(safeT); body.stop(safeT + decay + 0.15);
+
+  // ---- LAYER 4: SUB AIR ----
+  // Very low sine (half pitch) with slow attack — room pressurisation
+  // The thing you feel more than hear — gives the "big room" quality
+  const sub = ctx.createOscillator(); sub.type = 'sine';
+  sub.frequency.setValueAtTime(pitch * 0.55, safeT);
+  sub.frequency.exponentialRampToValueAtTime(Math.max(pitch * 0.4, 28), safeT + decay * 0.8);
+  const subHP = ctx.createBiquadFilter(); subHP.type = 'highpass';
+  subHP.frequency.value = 28; // cut truly subsonic to avoid driver damage
+  subHP.Q.value = 0.5;
+  const subEnv = ctx.createGain();
+  subEnv.gain.setValueAtTime(0.0001, safeT);
+  subEnv.gain.linearRampToValueAtTime(gain * 0.75, safeT + 0.018); // slower bloom
+  subEnv.gain.exponentialRampToValueAtTime(gain * 0.4, safeT + 0.08);
+  subEnv.gain.exponentialRampToValueAtTime(0.0001, safeT + decay * 1.2);
+  sub.connect(subHP); subHP.connect(subEnv); subEnv.connect(dest);
+  sub.start(safeT); sub.stop(safeT + decay * 1.3);
 }
+
+// Keep 808Kick as alias so old references still work
+function make808Kick(t, gain=0.9) { makeKick(t, gain); }
 
 function make808Snare(t, gain=0.5) {
   const dest = analyserNodes.drums;
@@ -1456,33 +1526,145 @@ function makeDistCurve(amount) {
 }
 
 // ---- GROOVE LIBRARY ----
-// Each groove: { name, kick[8], snare[8], hatPat[8], openHat[8], ghost[8] }
-// All patterns are 8 steps (2 beats at 8th-note resolution per beat in 4/4)
-// Scheduled 2 steps at a time — each beat subdivides into 2 eighth notes
+// 16-step patterns (16th-note resolution) — 4 steps per beat in 4/4
+// Breakbeat jazz + electronic influence:
+// Squarepusher, Photek, Amon Tobin, Mark Guiliana, Chris Dave,
+// Karriem Riggins, Flying Lotus, Nils Frahm live, Dilla, Madlib
+//
+// Philosophy: kick is a melodic event, not just timekeeping.
+// Snare avoids pure backbeat. Hats drive the momentum irregularly.
+// Ghost notes are the texture, not decoration.
+// kick/snare/hat/open/ghost — 1=hit, used as velocity multipliers
 const GROOVE_LIBRARY = [
-  // --- SIMPLE ---
-  { name:'FOUR FOUR',   kick:[1,0,0,0,1,0,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,1], ghost:[0,0,0,0,0,0,0,0] },
-  { name:'HALF TIME',   kick:[1,0,0,0,0,0,1,0], snare:[0,0,0,0,1,0,0,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,0,0], ghost:[0,0,0,0,0,0,0,0] },
-  { name:'BOOM BAP',    kick:[1,0,0,1,0,0,1,0], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,1,1,0,1,0], open:[0,0,0,0,0,0,0,1], ghost:[0,0,0,1,0,0,0,0] },
-  // --- MEDIUM ---
-  { name:'FUNK',        kick:[1,0,1,0,0,1,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,1,0,0,1] },
-  { name:'HIP HOP',     kick:[1,0,0,0,1,0,0,1], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,0,0], ghost:[0,0,0,1,0,1,0,0] },
-  { name:'NEO SOUL',    kick:[1,0,0,1,0,0,0,0], snare:[0,0,1,0,0,1,1,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,1], ghost:[0,1,0,0,0,0,1,0] },
-  { name:'TRAP',        kick:[1,0,0,0,0,0,1,0], snare:[0,0,0,0,1,0,0,0], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,0,0], ghost:[0,0,1,0,0,1,0,1] },
-  // --- COMPLEX ---
-  { name:'BROKEN BEAT', kick:[1,0,0,1,0,1,0,0], snare:[0,0,1,0,1,0,0,1], hat:[1,0,1,1,0,1,1,0], open:[0,0,0,0,1,0,0,0], ghost:[1,0,0,0,1,0,1,0] },
-  { name:'JAZZ',        kick:[1,0,0,0,0,0,1,0], snare:[0,0,1,0,0,1,0,0], hat:[1,1,0,1,1,1,0,1], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,0,1,0,1] },
-  { name:'AFROBEAT',    kick:[1,0,1,0,0,0,1,0], snare:[0,0,0,1,0,0,1,0], hat:[1,1,1,0,1,1,1,0], open:[0,0,0,0,0,0,0,1], ghost:[0,0,1,0,1,0,0,0] },
-  { name:'SHUFFLE',     kick:[1,0,0,0,1,0,0,0], snare:[0,0,1,0,0,0,1,0], hat:[1,0,1,0,1,0,1,0], open:[0,0,0,0,0,0,1,0], ghost:[0,1,0,0,0,1,0,0] },
-  { name:'TWO STEP',    kick:[1,0,0,0,0,1,0,0], snare:[0,0,1,0,0,0,0,1], hat:[1,1,1,1,1,1,1,1], open:[0,0,0,0,0,0,1,0], ghost:[0,0,0,1,0,0,1,0] },
-  { name:'LOOSE',       kick:[1,0,0,1,0,0,1,0], snare:[0,0,1,0,0,1,0,0], hat:[1,0,1,0,1,1,0,1], open:[0,0,0,0,0,0,0,1], ghost:[0,1,0,1,0,0,1,0] },
+
+  // ---- SIMPLE (complexity I) — grounded but already interesting ----
+
+  // Boom bap foundation — kick 1 + anticipation, snare 2&4, breathing hats
+  // The displaced kick on step 6 is what separates this from a drum machine
+  { name:'BOOM BAP',
+    kick: [1,0,0,0, 0,1,0,0, 0,0,0,0, 0,0,1,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hat:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    ghost:[0,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0] },
+
+  // Half-time hip-hop — massive snare on 3, kick roams free underneath
+  // Feels slow but the syncopated kick creates internal momentum
+  { name:'HALF TIME',
+    kick: [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,1,0,0],
+    snare:[0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+    hat:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    ghost:[0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,1,0] },
+
+  // Karriem Riggins pocket — kick on 1, ghost-heavy, minimal snare
+  // The ghost network IS the groove, snare is just punctuation
+  { name:'RIGGINS',
+    kick: [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hat:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    ghost:[0,1,0,1, 0,0,1,0, 1,0,0,1, 0,1,0,0] },
+
+  // ---- MEDIUM (complexity II) — feels live, thinks electronic ----
+
+  // Mark Guiliana fingerprint — kick displaced off every downbeat
+  // Snare on 2 only, hats push relentlessly in triplet-feel 16ths
+  { name:'GUILIANA',
+    kick: [0,0,1,0, 1,0,0,0, 0,0,1,0, 0,1,0,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,0,0,1, 1,0,0,0],
+    hat:  [1,1,0,1, 1,0,1,1, 0,1,1,0, 1,0,1,1],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+    ghost:[0,0,0,0, 0,1,0,0, 1,0,0,0, 0,0,0,1] },
+
+  // Dilla drunk — kick behind the beat, snare lazy, hats breathe
+  // The shuffle in the hats is intentional — uneven 16ths = humanity
+  { name:'DILLA',
+    kick: [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+    snare:[0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+    hat:  [1,0,1,1, 0,1,0,0, 1,0,1,1, 0,1,0,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+    ghost:[0,1,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,1] },
+
+  // Chris Dave broken pocket — kick clusters, snare melodic not metric
+  // Hat pattern implies a 3-against-4 feel across the bar
+  { name:'CHRIS DAVE',
+    kick: [1,0,0,1, 0,0,0,0, 1,0,0,0, 1,0,0,0],
+    snare:[0,0,0,0, 1,0,1,0, 0,0,0,0, 1,0,1,0],
+    hat:  [1,1,0,0, 1,1,0,0, 1,1,0,0, 1,1,0,1],
+    open: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    ghost:[0,0,1,0, 0,0,0,1, 0,1,0,1, 0,0,0,0] },
+
+  // Flying Lotus feel — kick on offbeats creates floating sensation
+  // Snare treated as another melodic percussion element
+  { name:'FLYING LOTUS',
+    kick: [0,0,1,0, 0,1,0,0, 0,0,0,1, 0,0,1,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,1,0,0, 1,0,0,1],
+    hat:  [1,0,1,0, 0,1,1,0, 1,0,0,1, 0,1,1,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    ghost:[0,1,0,1, 0,0,0,0, 1,0,1,0, 0,0,0,0] },
+
+  // Two-step broken — UK garage skeleton with jazz phrasing
+  { name:'TWO STEP',
+    kick: [0,0,1,0, 0,0,0,1, 0,0,1,0, 1,0,0,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1],
+    hat:  [1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1],
+    open: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+    ghost:[0,0,0,1, 0,0,1,0, 0,1,0,0, 0,0,0,0] },
+
+  // ---- COMPLEX (complexity III) — full breakbeat jazz vocabulary ----
+
+  // Squarepusher warp — kick and snare tumble through the bar
+  // No obvious beat 1 anchor; the listener has to find the pulse
+  { name:'SQUAREPUSHER',
+    kick: [1,0,0,0, 1,0,0,1, 0,0,1,0, 0,0,0,1],
+    snare:[0,0,1,0, 0,0,0,0, 1,0,0,1, 0,1,0,0],
+    hat:  [1,1,0,1, 0,1,1,0, 1,0,1,1, 0,1,0,1],
+    open: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    ghost:[1,0,1,0, 0,1,0,0, 0,1,0,0, 1,0,1,0] },
+
+  // Photek precision — minimalist but every event is surgical
+  // Space IS the groove; the kick and snare emerge from silence
+  { name:'PHOTEK',
+    kick: [1,0,0,0, 0,0,1,0, 0,0,0,1, 0,0,0,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,0,0,0, 0,1,0,1],
+    hat:  [1,0,0,1, 0,0,1,0, 0,1,0,0, 1,0,0,1],
+    open: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+    ghost:[0,1,0,0, 0,1,0,1, 0,0,1,0, 0,0,1,0] },
+
+  // Amon Tobin polyrhythm — kick follows a 3-step cycle inside 4/4
+  // Creates a hypnotic phase shift over two bars
+  { name:'AMON TOBIN',
+    kick: [1,0,0,1, 0,0,1,0, 0,1,0,0, 1,0,0,0],
+    snare:[0,0,0,0, 1,0,1,0, 0,0,0,1, 0,1,0,0],
+    hat:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    open: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,1],
+    ghost:[0,1,0,1, 0,0,0,1, 0,0,1,0, 0,0,1,0] },
+
+  // Madlib stutter — sample-derived feel, like it was edited in an MPC
+  // Ghost snares carry the implied groove underneath the main pattern
+  { name:'MADLIB',
+    kick: [1,0,0,0, 0,0,1,1, 0,0,0,0, 1,0,0,0],
+    snare:[0,0,0,0, 1,0,0,0, 0,1,0,1, 1,0,0,0],
+    hat:  [1,1,1,0, 1,0,1,0, 1,1,0,1, 0,1,1,0],
+    open: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    ghost:[0,0,1,1, 0,1,0,0, 1,0,1,0, 0,0,0,1] },
+
+  // Nils Frahm / Olaf Droptables live feel — jazz roots, electronic chaos
+  // Snare is everywhere and nowhere; ghost network is the main character
+  { name:'NILS',
+    kick: [1,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,1,0],
+    snare:[0,0,0,1, 0,0,1,0, 0,0,0,0, 1,0,0,1],
+    hat:  [1,0,0,1, 0,1,0,0, 1,0,0,1, 0,0,1,0],
+    open: [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0],
+    ghost:[0,1,1,0, 0,0,0,1, 1,0,1,0, 0,1,0,0] },
 ];
 
-// Simple → first 3 grooves; Medium → 3–6; Complex → all
+// Complexity tiers: I=simple, II=medium, III=all (breakbeat/complex)
 function groovesForComplexity(c) {
-  if (c === 1) return GROOVE_LIBRARY.slice(0, 3);
-  if (c === 2) return GROOVE_LIBRARY.slice(0, 7);
-  return GROOVE_LIBRARY;
+  if (c === 1) return GROOVE_LIBRARY.slice(0, 3);   // BOOM BAP, HALF TIME, RIGGINS
+  if (c === 2) return GROOVE_LIBRARY.slice(0, 7);   // + GUILIANA, DILLA, CHRIS DAVE, FLYING LOTUS, TWO STEP
+  return GROOVE_LIBRARY;                             // + SQUAREPUSHER, PHOTEK, AMON TOBIN, MADLIB, NILS
 }
 
 let currentGroove = GROOVE_LIBRARY[0];
@@ -1517,33 +1699,36 @@ function scheduleDrums(beat, t, bd) {
     delete state.musicians.drums._rerollIdx;
   }
 
-  const g   = currentGroove;
-  const hd  = instrParams.drums.hatDensity;
+  const g  = currentGroove;
+  const hd = instrParams.drums.hatDensity;
 
-  // Each beat maps to 2 eighth-note steps in the 8-step pattern
-  const step  = (beat * 2) % 8;
-  const step2 = (step + 1) % 8;
+  // 16-step grid: each beat covers 4 sixteenth-note steps
+  // Schedule all 4 steps for this beat
+  for (let s = 0; s < 4; s++) {
+    const step = (beat * 4 + s) % 16;
+    const st   = t + bd * (s / 4);  // offset within beat
 
-  // Step 1 (on the beat)
-  if (g.kick[step])  make808Kick(t, 0.70);
-  if (g.snare[step]) make808Snare(t, g.ghost[step] ? 0.18 : 0.48); // ghost = quiet
-  if (g.open[step])  make808Hat(t, true,  0.18 + hd * 0.08);
-  else if (g.hat[step]) make808Hat(t, false, 0.14 + hd * 0.08);
+    const isKick  = g.kick[step];
+    const isSnare = g.snare[step];
+    const isGhost = g.ghost[step];
+    const isOpen  = g.open[step];
+    const isHat   = g.hat[step];
 
-  // Step 2 (the "and" — eighth note later)
-  if (g.kick[step2])  make808Kick(t + bd * 0.5, 0.55);
-  if (g.snare[step2]) make808Snare(t + bd * 0.5, g.ghost[step2] ? 0.15 : 0.45);
-  if (g.open[step2])  make808Hat(t + bd * 0.5, true,  0.15);
-  else if (g.hat[step2]) make808Hat(t + bd * 0.5, false, 0.10 + hd * 0.06);
+    if (isKick)  makeKick(st, s === 0 ? 0.82 : 0.62);  // on-beat kick louder
 
-  // Occasional 16th-note hat flourish at high density
-  if (hd > 0.65 && Math.random() < hd * 0.4) {
-    make808Hat(t + bd * 0.75, false, 0.07 + hd * 0.04);
+    if (isSnare) {
+      const vel = isGhost ? 0.14 + Math.random() * 0.08  // ghost: soft + humanised
+                          : 0.42 + Math.random() * 0.10; // full: slight vel variation
+      make808Snare(st, vel);
+    }
+
+    if (isOpen)      make808Hat(st, true,  0.16 + hd * 0.06);
+    else if (isHat)  make808Hat(st, false, (0.10 + hd * 0.06) * (0.75 + Math.random() * 0.5));
   }
 
-  // Crash/open hat on bar 1 beat 1 occasionally
-  if (beat === 0 && Math.random() < 0.25) {
-    make808Hat(t, true, 0.12 + hd * 0.06);
+  // Open hat accent on last 16th of the bar occasionally (bar fill)
+  if (beat === beatsPerMeasure() - 1 && Math.random() < 0.3) {
+    make808Hat(t + bd * 0.75, true, 0.14 + hd * 0.05);
   }
 }
 
@@ -2556,7 +2741,7 @@ function stopMusician(m) {
 
 function getLockedStatus(m) {
   const statuses = {
-    drums:  '◉ 808 LOCKED',
+    drums:  '◉ DRUMS LOCKED',
     bass:   '◉ SAW ARP LOCKED',
     keys:   '◉ RHODES LOCKED',
     digger: '◉ DIGGING...'
@@ -2578,8 +2763,8 @@ function setStatus(m, text) {
 // ============================================================
 const instrParams = {
   drums: {
-    kickDecay:   0.5,   // 0.2–1.0  — punch vs boom
-    kickPitch:   250,   // × 0.28 = ~70 Hz — solid low thud
+    kickDecay:   0.55,  // 0.2–1.0  — punch vs boom
+    kickPitch:   58,    // Hz — fundamental of the kick (sub layer)
     snareSnap:   0.15,  // 0.05–0.3 — snare decay
     hatDensity:  0.5,   // 0–1      — offbeat hat probability
     distAmount:  50,    // 10–200   — waveshaper drive

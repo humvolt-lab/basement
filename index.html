@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -11,641 +12,645 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=VT323&display=swap');
 
-  :root {
-    --bg: #0a0a0a;
-    --panel: #111111;
-    --border: #2a2a2a;
-    --accent: #c8a84b;
-    --accent2: #4bc8a8;
-    --accent3: #c84b6e;
-    --accent4: #7b4bc8;
-    --dim: #333333;
-    --text: #e8e0cc;
-    --textdim: #666666;
-    --on: #c8a84b;
-    --off: #1a1a1a;
-    --glow: rgba(200,168,75,0.15);
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-
-  /* GitHub Pages / Jekyll override guard — force dark theme unconditionally */
-  html { background: #0a0a0a !important; }
-  body { background: #0a0a0a !important; color: #e8e0cc !important; }
-  #splash, #app { background: #0a0a0a !important; }
-
-  html, body {
-    width: 100%; height: 100%;
-    background: #0a0a0a !important;
-    background-color: #0a0a0a !important;
-    color: #e8e0cc !important;
-    font-family: 'Share Tech Mono', monospace;
-    overflow: hidden;
-    color-scheme: dark;
-    touch-action: manipulation;
-  }
-
-  #splash {
-    position: fixed; inset: 0;
-    background: var(--bg);
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    z-index: 100;
-    gap: 32px;
-  }
-
-  #splash h1 {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: clamp(48px, 15vw, 80px);
-    letter-spacing: 0.15em;
-    color: var(--accent);
-    text-shadow: 0 0 40px rgba(200,168,75,0.4);
-    animation: flicker 4s infinite;
-  }
-
-  #splash p {
-    font-family: 'VT323', monospace;
-    font-size: clamp(14px, 4vw, 18px);
-    color: var(--textdim);
-    letter-spacing: 0.2em;
-    text-align: center;
-    line-height: 1.8;
-  }
-
-  #init-btn {
-    background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: clamp(18px, 5vw, 24px);
-    letter-spacing: 0.3em;
-    padding: 14px 40px;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 0 20px rgba(200,168,75,0.1);
-  }
-
-  #init-btn:active {
-    background: rgba(200,168,75,0.1);
-    box-shadow: 0 0 30px rgba(200,168,75,0.3);
-  }
-
-  @keyframes flicker {
-    0%,95%,100% { opacity: 1; }
-    96% { opacity: 0.8; }
-    97% { opacity: 1; }
-    98% { opacity: 0.6; }
-    99% { opacity: 1; }
-  }
-
-  #app {
-    display: none;
-    flex-direction: column;
-    height: 100dvh;
-    width: 100%;
-    padding: env(safe-area-inset-top, 8px) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 0);
-  }
-
-  /* KEY/MODE TOGGLE BUTTONS */
-  .key-mode-toggles {
-    display: flex; align-items: center; gap: 6px; width: 100%;
-  }
-  .key-mode-toggles .mode-grid { flex: 1; }
-  .toggle-btn {
-    background: transparent;
-    border: 1px solid var(--dim);
-    color: var(--textdim);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.04em;
-    padding: 3px 5px;
-    border-radius: 3px;
-    cursor: pointer;
-    white-space: nowrap;
-    min-width: 28px;
-    text-align: center;
-    transition: all 0.2s;
-  }
-  .toggle-btn.toggle-active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(200,168,75,0.12);
-    box-shadow: 0 0 6px rgba(200,168,75,0.2);
-  }
-  .toggle-btn:active { opacity: 0.7; }
-
-  /* DISTORTION PEDAL */
-  #pedal-row { margin-top: 2px; }
-  .pedal-section {
-    width: 100%; padding: 6px 12px 8px;
-    border: 1px solid var(--border); border-radius: 4px;
-  }
-  .pedal-header {
-    text-align: center; font-size: 10px; color: var(--accent);
-    letter-spacing: 0.15em; margin-bottom: 8px;
-  }
-  .pedal-grid {
-    display: flex; gap: 12px; align-items: flex-start;
-  }
-  .pedal-col {
-    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  }
-  .pedal-col-label {
-    font-size: 9px; color: var(--textdim); letter-spacing: 0.08em;
-  }
-  .pedal-wrap {
-    width: 100%; display: flex; align-items: center;
-  }
-  .pedal-val {
-    font-size: 10px; color: var(--accent); letter-spacing: 0.05em;
-    text-align: center; min-height: 14px;
-  }
-  input[type=range] {
-    -webkit-appearance: none; appearance: none;
-    width: 100%; height: 3px; border-radius: 2px;
-    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--pct, 0%), var(--dim) var(--pct, 0%));
-    outline: none;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 14px; height: 14px; border-radius: 50%;
-    background: var(--accent); border: 2px solid var(--bg);
-    box-shadow: 0 0 5px rgba(200,168,75,0.4);
-    cursor: pointer;
-  }
-
-  /* GLOBAL CONTROLS */
-  #global {
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-    padding: 8px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
-  #global-title {
-    font-family: 'VT323', monospace;
-    font-size: 11px;
-    letter-spacing: 0.3em;
-    color: var(--textdim);
-    text-align: center;
-  }
-
-  .global-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .global-knob-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    flex: 1;
-  }
-
-  .global-knob-group label {
-    font-size: 9px;
-    letter-spacing: 0.2em;
-    color: var(--textdim);
-  }
-
-  .knob-wrap {
-    position: relative;
-    width: 36px; height: 36px;
-  }
-
-  .knob-wrap canvas {
-    width: 36px; height: 36px;
-    cursor: pointer;
-  }
-
-  .knob-val {
-    font-size: 9px;
-    color: var(--accent);
-    text-align: center;
-    font-family: 'VT323', monospace;
-  }
-
-  .seg-control {
-    display: flex;
-    border: 1px solid var(--border);
-    overflow: hidden;
-    flex: 1;
-  }
-
-  .seg-control button {
-    flex: 1;
-    background: var(--off);
-    border: none;
-    color: var(--textdim);
-    font-family: 'VT323', monospace;
-    font-size: 11px;
-    padding: 5px 1px;
-    cursor: pointer;
-    transition: all 0.15s;
-    border-right: 1px solid var(--border);
-  }
-
-  .seg-control button:last-child { border-right: none; }
-
-  .seg-control button.active {
-    background: rgba(200,168,75,0.15);
-    color: var(--accent);
-  }
-
-  /* BAND PANELS */
-  #band {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    flex-direction: column;
-    gap: 1px;
-    background: var(--border);
-  }
-
-  .musician {
-    flex: 1;
-    background: var(--panel);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 12px;
-    position: relative;
-    overflow: hidden;
-    transition: background 0.3s;
-  }
-
-  .musician.finding {
-    background: #0f0f0f;
-  }
-
-  .musician.locked {
-    background: #111111;
-  }
-
-  /* Scan line effect */
-  .musician::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.08) 2px,
-      rgba(0,0,0,0.08) 4px
-    );
-    pointer-events: none;
-  }
-
-  /* VU meter background */
-  .vu-bg {
-    position: absolute;
-    right: 0; top: 0; bottom: 0;
-    width: 3px;
-    overflow: hidden;
-  }
-
-  .vu-bar {
-    position: absolute;
-    bottom: 0;
-    width: 100%;
-    background: var(--accent);
-    transition: height 0.05s;
-    opacity: 0.6;
-  }
-
-  /* Symbol */
-  .symbol {
-    width: 44px; height: 44px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    opacity: 0.3;
-    transition: opacity 0.5s;
-  }
-
-  .musician.locked .symbol { opacity: 1; }
-  .musician.finding .symbol { opacity: 0.6; animation: pulse-sym 0.8s infinite; }
-
-  @keyframes pulse-sym {
-    0%,100% { opacity: 0.4; }
-    50% { opacity: 0.8; }
-  }
-
-  .symbol svg { width: 100%; height: 100%; }
-
-  /* Name + status */
-  .musician-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .musician-name {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: clamp(16px, 4.5vw, 22px);
-    letter-spacing: 0.15em;
-    line-height: 1;
-  }
-
-  .musician-status {
-    font-family: 'VT323', monospace;
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    color: var(--textdim);
-    height: 14px;
-    overflow: hidden;
-  }
-
-  /* Complexity */
-  .complexity-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    flex-shrink: 0;
-  }
-
-  .complexity-group label {
-    font-size: 8px;
-    letter-spacing: 0.2em;
-    color: var(--textdim);
-  }
-
-  .complexity-btns {
-    display: flex;
-    gap: 3px;
-  }
-
-  .cplx-btn {
-    width: 22px; height: 22px;
-    border: 1px solid var(--dim);
-    background: transparent;
-    border-radius: 2px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
-    font-size: 10px;
-    color: var(--textdim);
-    font-family: 'Share Tech Mono', monospace;
-  }
-
-  .cplx-btn.active {
-    border-color: var(--accent);
-    background: rgba(200,168,75,0.15);
-    color: var(--accent);
-  }
-
-  /* Play/Stop */
-  .play-btn {
-    width: 42px; height: 42px;
-    border-radius: 50%;
-    border: 1.5px solid var(--dim);
-    background: transparent;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.2s;
-    position: relative;
-  }
-
-  .play-btn.playing {
-    border-color: var(--accent);
-    box-shadow: 0 0 12px rgba(200,168,75,0.3);
-  }
-
-  .play-btn svg { transition: all 0.2s; }
-
-  /* Color theming per musician */
-  .musician[data-m="drums"] { --mc: var(--accent); }
-  .musician[data-m="bass"]  { --mc: var(--accent2); }
-  .musician[data-m="keys"]  { --mc: var(--accent3); }
-  .musician[data-m="digger"]{ --mc: var(--accent4); }
-
-  .musician[data-m="drums"] .musician-name  { color: var(--accent); }
-  .musician[data-m="bass"]  .musician-name  { color: var(--accent2); }
-  .musician[data-m="keys"]  .musician-name  { color: var(--accent3); }
-  .musician[data-m="digger"].musician-name  { color: var(--accent4); }
-
-  .musician[data-m="drums"]  .play-btn.playing { border-color: var(--accent);  box-shadow: 0 0 12px rgba(200,168,75,0.3); }
-  .musician[data-m="bass"]   .play-btn.playing { border-color: var(--accent2); box-shadow: 0 0 12px rgba(75,200,168,0.3); }
-  .musician[data-m="keys"]   .play-btn.playing { border-color: var(--accent3); box-shadow: 0 0 12px rgba(200,75,110,0.3); }
-  .musician[data-m="digger"] .play-btn.playing { border-color: var(--accent4); box-shadow: 0 0 12px rgba(123,75,200,0.3); }
-
-  .musician[data-m="drums"]  .cplx-btn.active { border-color: var(--accent);  background: rgba(200,168,75,0.15);  color: var(--accent); }
-  .musician[data-m="bass"]   .cplx-btn.active { border-color: var(--accent2); background: rgba(75,200,168,0.15);  color: var(--accent2); }
-  .musician[data-m="keys"]   .cplx-btn.active { border-color: var(--accent3); background: rgba(200,75,110,0.15);  color: var(--accent3); }
-  .musician[data-m="digger"] .cplx-btn.active { border-color: var(--accent4); background: rgba(123,75,200,0.15);  color: var(--accent4); }
-
-  .musician[data-m="drums"]  .symbol { color: var(--accent); }
-  .musician[data-m="bass"]   .symbol { color: var(--accent2); }
-  .musician[data-m="keys"]   .symbol { color: var(--accent3); }
-  .musician[data-m="digger"] .symbol { color: var(--accent4); }
-
-  .musician[data-m="drums"]  .vu-bar { background: var(--accent); }
-  .musician[data-m="bass"]   .vu-bar { background: var(--accent2); }
-  .musician[data-m="keys"]   .vu-bar { background: var(--accent3); }
-  .musician[data-m="digger"] .vu-bar { background: var(--accent4); }
-
-  /* Waveform canvas per musician */
-  .wave-canvas {
-    position: absolute;
-    bottom: 0; left: 56px; right: 50px;
-    height: 20px;
-    opacity: 0;
-    transition: opacity 0.5s;
-    pointer-events: none;
-  }
-
-  .musician.locked .wave-canvas { opacity: 0.25; }
-  .musician.finding .wave-canvas { opacity: 0.1; }
-
-  /* Scrolling status text */
-  @keyframes scroll-status {
-    0% { transform: translateX(100%); }
-    100% { transform: translateX(-100%); }
-  }
-
-  .scrolling {
-    display: inline-block;
-    animation: scroll-status 8s linear infinite;
-    white-space: nowrap;
-  }
-
-  /* Reinterpret button */
-  .reint-btn {
-    width: 34px; height: 34px;
-    border-radius: 50%;
-    border: 1px solid var(--dim);
-    background: transparent;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    color: var(--textdim);
-    font-size: 16px;
-    transition: all 0.15s;
-    margin-left: -4px;
-  }
-
-  .reint-btn:active {
-    transform: rotate(180deg) scale(0.9);
-  }
-
-  .musician[data-m="drums"]  .reint-btn:active { color: var(--accent);  border-color: var(--accent); }
-  .musician[data-m="bass"]   .reint-btn:active { color: var(--accent2); border-color: var(--accent2); }
-  .musician[data-m="keys"]   .reint-btn:active { color: var(--accent3); border-color: var(--accent3); }
-  .musician[data-m="digger"] .reint-btn:active { color: var(--accent4); border-color: var(--accent4); }
-
-  .reint-btn.flash {
-    color: var(--mc);
-    border-color: var(--mc);
-    transform: rotate(180deg);
-  }
-
-  /* Tweak / randomize sound button */
-  .tweak-btn {
-    width: 34px; height: 34px;
-    border-radius: 4px;
-    border: 1px solid var(--dim);
-    background: transparent;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    color: var(--textdim);
-    transition: all 0.15s;
-    margin-left: -4px;
-    padding: 5px;
-  }
-
-  .die-svg {
-    width: 100%; height: 100%;
-    overflow: visible;
-  }
-
-  .die-svg rect {
-    transition: stroke 0.15s;
-  }
-
-  @keyframes die-shake {
-    0%   { transform: rotate(0deg) scale(1); }
-    20%  { transform: rotate(-15deg) scale(1.1); }
-    40%  { transform: rotate(12deg) scale(0.95); }
-    60%  { transform: rotate(-8deg) scale(1.05); }
-    80%  { transform: rotate(5deg) scale(0.98); }
-    100% { transform: rotate(0deg) scale(1); }
-  }
-
-  .tweak-btn.rolling .die-svg {
-    animation: die-shake 0.12s ease-in-out;
-  }
-
-  .tweak-btn:active { transform: scale(0.88); }
-
-  .musician[data-m="drums"]  .tweak-btn:active { color: var(--accent);  border-color: var(--accent);  background: rgba(200,168,75,0.1); }
-  .musician[data-m="bass"]   .tweak-btn:active { color: var(--accent2); border-color: var(--accent2); background: rgba(75,200,168,0.1); }
-  .musician[data-m="keys"]   .tweak-btn:active { color: var(--accent3); border-color: var(--accent3); background: rgba(200,75,110,0.1); }
-  .musician[data-m="digger"] .tweak-btn:active { color: var(--accent4); border-color: var(--accent4); background: rgba(123,75,200,0.1); }
-
-  .tweak-btn.flash {
-    color: var(--mc);
-    border-color: var(--mc);
-    background: rgba(255,255,255,0.05);
-    transform: scale(0.88);
-  }
-
-  /* Key grid */
-  .key-grid {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    gap: 2px;
-    width: 100%;
-  }
-
-  .key-btn {
-    background: #1c1c1c;
-    border: 1px solid var(--border);
-    color: var(--textdim);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 8px;
-    padding: 5px 0;
-    cursor: pointer;
-    transition: all 0.12s;
-    border-radius: 2px;
-    letter-spacing: 0;
-  }
-
-  .key-btn.black {
-    background: #111;
-    color: #444;
-  }
-
-  .key-btn.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #000;
-    font-weight: bold;
-  }
-
-  .key-btn:active { transform: scale(0.9); }
-
-  /* Mode grid */
-  .mode-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 2px;
-    width: 100%;
-    margin-top: 3px;
-  }
-
-  .mode-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--textdim);
-    font-family: 'VT323', monospace;
-    font-size: 11px;
-    padding: 3px 0;
-    cursor: pointer;
-    transition: all 0.12s;
-    border-radius: 2px;
-  }
-
-  .mode-btn.active {
-    background: rgba(200,168,75,0.15);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .mode-btn:active { transform: scale(0.9); }
-
-  /* Global fx row */
-  .fx-label {
-    font-size: 9px;
-    letter-spacing: 0.2em;
-    color: var(--textdim);
-    text-align: center;
-    margin-bottom: 1px;
-  }
+:root {
+–bg: #0a0a0a;
+–panel: #111111;
+–border: #2a2a2a;
+–accent: #c8a84b;
+–accent2: #4bc8a8;
+–accent3: #c84b6e;
+–accent4: #7b4bc8;
+–dim: #333333;
+–text: #e8e0cc;
+–textdim: #666666;
+–on: #c8a84b;
+–off: #1a1a1a;
+–glow: rgba(200,168,75,0.15);
+}
+
+- { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+/* GitHub Pages / Jekyll override guard — force dark theme unconditionally */
+html { background: #0a0a0a !important; }
+body { background: #0a0a0a !important; color: #e8e0cc !important; }
+#splash, #app { background: #0a0a0a !important; }
+
+html, body {
+width: 100%; height: 100%;
+background: #0a0a0a !important;
+background-color: #0a0a0a !important;
+color: #e8e0cc !important;
+font-family: ‘Share Tech Mono’, monospace;
+overflow: hidden;
+color-scheme: dark;
+touch-action: manipulation;
+}
+
+#splash {
+position: fixed; inset: 0;
+background: var(–bg);
+display: flex; flex-direction: column;
+align-items: center; justify-content: center;
+z-index: 100;
+gap: 32px;
+}
+
+#splash h1 {
+font-family: ‘Bebas Neue’, sans-serif;
+font-size: clamp(48px, 15vw, 80px);
+letter-spacing: 0.15em;
+color: var(–accent);
+text-shadow: 0 0 40px rgba(200,168,75,0.4);
+animation: flicker 4s infinite;
+}
+
+#splash p {
+font-family: ‘VT323’, monospace;
+font-size: clamp(14px, 4vw, 18px);
+color: var(–textdim);
+letter-spacing: 0.2em;
+text-align: center;
+line-height: 1.8;
+}
+
+#init-btn {
+background: transparent;
+border: 1px solid var(–accent);
+color: var(–accent);
+font-family: ‘Bebas Neue’, sans-serif;
+font-size: clamp(18px, 5vw, 24px);
+letter-spacing: 0.3em;
+padding: 14px 40px;
+cursor: pointer;
+transition: all 0.2s;
+box-shadow: 0 0 20px rgba(200,168,75,0.1);
+}
+
+#init-btn:active {
+background: rgba(200,168,75,0.1);
+box-shadow: 0 0 30px rgba(200,168,75,0.3);
+}
+
+@keyframes flicker {
+0%,95%,100% { opacity: 1; }
+96% { opacity: 0.8; }
+97% { opacity: 1; }
+98% { opacity: 0.6; }
+99% { opacity: 1; }
+}
+
+#app {
+display: none;
+flex-direction: column;
+height: 100dvh;
+width: 100%;
+padding: env(safe-area-inset-top, 8px) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 0);
+}
+
+/* KEY/MODE TOGGLE BUTTONS */
+.key-mode-toggles {
+display: flex; align-items: center; gap: 6px; width: 100%;
+}
+.key-mode-toggles .mode-grid { flex: 1; }
+.toggle-btn {
+background: transparent;
+border: 1px solid var(–dim);
+color: var(–textdim);
+font-family: ‘Share Tech Mono’, monospace;
+font-size: 9px;
+letter-spacing: 0.04em;
+padding: 3px 5px;
+border-radius: 3px;
+cursor: pointer;
+white-space: nowrap;
+min-width: 28px;
+text-align: center;
+transition: all 0.2s;
+}
+.toggle-btn.toggle-active {
+border-color: var(–accent);
+color: var(–accent);
+background: rgba(200,168,75,0.12);
+box-shadow: 0 0 6px rgba(200,168,75,0.2);
+}
+.toggle-btn:active { opacity: 0.7; }
+
+/* DISTORTION PEDAL */
+#pedal-row { margin-top: 2px; }
+.pedal-section {
+width: 100%; padding: 6px 12px 8px;
+border: 1px solid var(–border); border-radius: 4px;
+}
+.pedal-header {
+text-align: center; font-size: 10px; color: var(–accent);
+letter-spacing: 0.15em; margin-bottom: 8px;
+}
+.pedal-grid {
+display: flex; gap: 12px; align-items: flex-start;
+}
+.pedal-col {
+flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.pedal-col-label {
+font-size: 9px; color: var(–textdim); letter-spacing: 0.08em;
+}
+.pedal-wrap {
+width: 100%; display: flex; align-items: center;
+}
+.pedal-val {
+font-size: 10px; color: var(–accent); letter-spacing: 0.05em;
+text-align: center; min-height: 14px;
+}
+input[type=range] {
+-webkit-appearance: none; appearance: none;
+width: 100%; height: 3px; border-radius: 2px;
+background: linear-gradient(to right, var(–accent) 0%, var(–accent) var(–pct, 0%), var(–dim) var(–pct, 0%));
+outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+-webkit-appearance: none; appearance: none;
+width: 14px; height: 14px; border-radius: 50%;
+background: var(–accent); border: 2px solid var(–bg);
+box-shadow: 0 0 5px rgba(200,168,75,0.4);
+cursor: pointer;
+}
+
+/* GLOBAL CONTROLS */
+#global {
+background: var(–panel);
+border-bottom: 1px solid var(–border);
+padding: 8px 12px;
+display: flex;
+flex-direction: column;
+gap: 6px;
+flex-shrink: 0;
+}
+
+#global-title {
+font-family: ‘VT323’, monospace;
+font-size: 11px;
+letter-spacing: 0.3em;
+color: var(–textdim);
+text-align: center;
+}
+
+.global-row {
+display: flex;
+gap: 6px;
+align-items: center;
+justify-content: space-between;
+}
+
+.global-knob-group {
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 2px;
+flex: 1;
+}
+
+.global-knob-group label {
+font-size: 9px;
+letter-spacing: 0.2em;
+color: var(–textdim);
+}
+
+.knob-wrap {
+position: relative;
+width: 36px; height: 36px;
+}
+
+.knob-wrap canvas {
+width: 36px; height: 36px;
+cursor: pointer;
+}
+
+.knob-val {
+font-size: 9px;
+color: var(–accent);
+text-align: center;
+font-family: ‘VT323’, monospace;
+}
+
+.seg-control {
+display: flex;
+border: 1px solid var(–border);
+overflow: hidden;
+flex: 1;
+}
+
+.seg-control button {
+flex: 1;
+background: var(–off);
+border: none;
+color: var(–textdim);
+font-family: ‘VT323’, monospace;
+font-size: 11px;
+padding: 5px 1px;
+cursor: pointer;
+transition: all 0.15s;
+border-right: 1px solid var(–border);
+}
+
+.seg-control button:last-child { border-right: none; }
+
+.seg-control button.active {
+background: rgba(200,168,75,0.15);
+color: var(–accent);
+}
+
+/* BAND PANELS */
+#band {
+display: flex;
+flex: 1;
+overflow: hidden;
+flex-direction: column;
+gap: 1px;
+background: var(–border);
+}
+
+.musician {
+flex: 1;
+background: var(–panel);
+display: flex;
+align-items: center;
+padding: 0 12px;
+gap: 12px;
+position: relative;
+overflow: hidden;
+transition: background 0.3s;
+}
+
+.musician.finding {
+background: #0f0f0f;
+}
+
+.musician.locked {
+background: #111111;
+}
+
+/* Scan line effect */
+.musician::after {
+content: ‘’;
+position: absolute;
+inset: 0;
+background: repeating-linear-gradient(
+0deg,
+transparent,
+transparent 2px,
+rgba(0,0,0,0.08) 2px,
+rgba(0,0,0,0.08) 4px
+);
+pointer-events: none;
+}
+
+/* VU meter background */
+.vu-bg {
+position: absolute;
+right: 0; top: 0; bottom: 0;
+width: 3px;
+overflow: hidden;
+}
+
+.vu-bar {
+position: absolute;
+bottom: 0;
+width: 100%;
+background: var(–accent);
+transition: height 0.05s;
+opacity: 0.6;
+}
+
+/* Symbol */
+.symbol {
+width: 44px; height: 44px;
+display: flex; align-items: center; justify-content: center;
+flex-shrink: 0;
+opacity: 0.3;
+transition: opacity 0.5s;
+}
+
+.musician.locked .symbol { opacity: 1; }
+.musician.finding .symbol { opacity: 0.6; animation: pulse-sym 0.8s infinite; }
+
+@keyframes pulse-sym {
+0%,100% { opacity: 0.4; }
+50% { opacity: 0.8; }
+}
+
+.symbol svg { width: 100%; height: 100%; }
+
+/* Name + status */
+.musician-info {
+flex: 1;
+display: flex;
+flex-direction: column;
+gap: 2px;
+min-width: 0;
+}
+
+.musician-name {
+font-family: ‘Bebas Neue’, sans-serif;
+font-size: clamp(16px, 4.5vw, 22px);
+letter-spacing: 0.15em;
+line-height: 1;
+}
+
+.musician-status {
+font-family: ‘VT323’, monospace;
+font-size: 11px;
+letter-spacing: 0.2em;
+color: var(–textdim);
+height: 14px;
+overflow: hidden;
+}
+
+/* Complexity */
+.complexity-group {
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 3px;
+flex-shrink: 0;
+}
+
+.complexity-group label {
+font-size: 8px;
+letter-spacing: 0.2em;
+color: var(–textdim);
+}
+
+.complexity-btns {
+display: flex;
+gap: 3px;
+}
+
+.cplx-btn {
+width: 22px; height: 22px;
+border: 1px solid var(–dim);
+background: transparent;
+border-radius: 2px;
+cursor: pointer;
+display: flex; align-items: center; justify-content: center;
+transition: all 0.15s;
+font-size: 10px;
+color: var(–textdim);
+font-family: ‘Share Tech Mono’, monospace;
+}
+
+.cplx-btn.active {
+border-color: var(–accent);
+background: rgba(200,168,75,0.15);
+color: var(–accent);
+}
+
+/* Play/Stop */
+.play-btn {
+width: 42px; height: 42px;
+border-radius: 50%;
+border: 1.5px solid var(–dim);
+background: transparent;
+cursor: pointer;
+display: flex; align-items: center; justify-content: center;
+flex-shrink: 0;
+transition: all 0.2s;
+position: relative;
+}
+
+.play-btn.playing {
+border-color: var(–accent);
+box-shadow: 0 0 12px rgba(200,168,75,0.3);
+}
+
+.play-btn svg { transition: all 0.2s; }
+
+/* Color theming per musician */
+.musician[data-m=“drums”] { –mc: var(–accent); }
+.musician[data-m=“bass”]  { –mc: var(–accent2); }
+.musician[data-m=“keys”]  { –mc: var(–accent3); }
+.musician[data-m=“digger”]{ –mc: var(–accent4); }
+
+.musician[data-m=“drums”] .musician-name  { color: var(–accent); }
+.musician[data-m=“bass”]  .musician-name  { color: var(–accent2); }
+.musician[data-m=“keys”]  .musician-name  { color: var(–accent3); }
+.musician[data-m=“digger”].musician-name  { color: var(–accent4); }
+
+.musician[data-m=“drums”]  .play-btn.playing { border-color: var(–accent);  box-shadow: 0 0 12px rgba(200,168,75,0.3); }
+.musician[data-m=“bass”]   .play-btn.playing { border-color: var(–accent2); box-shadow: 0 0 12px rgba(75,200,168,0.3); }
+.musician[data-m=“keys”]   .play-btn.playing { border-color: var(–accent3); box-shadow: 0 0 12px rgba(200,75,110,0.3); }
+.musician[data-m=“digger”] .play-btn.playing { border-color: var(–accent4); box-shadow: 0 0 12px rgba(123,75,200,0.3); }
+
+.musician[data-m=“drums”]  .cplx-btn.active { border-color: var(–accent);  background: rgba(200,168,75,0.15);  color: var(–accent); }
+.musician[data-m=“bass”]   .cplx-btn.active { border-color: var(–accent2); background: rgba(75,200,168,0.15);  color: var(–accent2); }
+.musician[data-m=“keys”]   .cplx-btn.active { border-color: var(–accent3); background: rgba(200,75,110,0.15);  color: var(–accent3); }
+.musician[data-m=“digger”] .cplx-btn.active { border-color: var(–accent4); background: rgba(123,75,200,0.15);  color: var(–accent4); }
+
+.musician[data-m=“drums”]  .symbol { color: var(–accent); }
+.musician[data-m=“bass”]   .symbol { color: var(–accent2); }
+.musician[data-m=“keys”]   .symbol { color: var(–accent3); }
+.musician[data-m=“digger”] .symbol { color: var(–accent4); }
+
+.musician[data-m=“drums”]  .vu-bar { background: var(–accent); }
+.musician[data-m=“bass”]   .vu-bar { background: var(–accent2); }
+.musician[data-m=“keys”]   .vu-bar { background: var(–accent3); }
+.musician[data-m=“digger”] .vu-bar { background: var(–accent4); }
+
+/* Waveform canvas per musician */
+.wave-canvas {
+position: absolute;
+bottom: 0; left: 56px; right: 50px;
+height: 20px;
+opacity: 0;
+transition: opacity 0.5s;
+pointer-events: none;
+}
+
+.musician.locked .wave-canvas { opacity: 0.25; }
+.musician.finding .wave-canvas { opacity: 0.1; }
+
+/* Scrolling status text */
+@keyframes scroll-status {
+0% { transform: translateX(100%); }
+100% { transform: translateX(-100%); }
+}
+
+.scrolling {
+display: inline-block;
+animation: scroll-status 8s linear infinite;
+white-space: nowrap;
+}
+
+/* Reinterpret button */
+.reint-btn {
+width: 34px; height: 34px;
+border-radius: 50%;
+border: 1px solid var(–dim);
+background: transparent;
+cursor: pointer;
+display: flex; align-items: center; justify-content: center;
+flex-shrink: 0;
+color: var(–textdim);
+font-size: 16px;
+transition: all 0.15s;
+margin-left: -4px;
+}
+
+.reint-btn:active {
+transform: rotate(180deg) scale(0.9);
+}
+
+.musician[data-m=“drums”]  .reint-btn:active { color: var(–accent);  border-color: var(–accent); }
+.musician[data-m=“bass”]   .reint-btn:active { color: var(–accent2); border-color: var(–accent2); }
+.musician[data-m=“keys”]   .reint-btn:active { color: var(–accent3); border-color: var(–accent3); }
+.musician[data-m=“digger”] .reint-btn:active { color: var(–accent4); border-color: var(–accent4); }
+
+.reint-btn.flash {
+color: var(–mc);
+border-color: var(–mc);
+transform: rotate(180deg);
+}
+
+/* Tweak / randomize sound button */
+.tweak-btn {
+width: 34px; height: 34px;
+border-radius: 4px;
+border: 1px solid var(–dim);
+background: transparent;
+cursor: pointer;
+display: flex; align-items: center; justify-content: center;
+flex-shrink: 0;
+color: var(–textdim);
+transition: all 0.15s;
+margin-left: -4px;
+padding: 5px;
+}
+
+.die-svg {
+width: 100%; height: 100%;
+overflow: visible;
+}
+
+.die-svg rect {
+transition: stroke 0.15s;
+}
+
+@keyframes die-shake {
+0%   { transform: rotate(0deg) scale(1); }
+20%  { transform: rotate(-15deg) scale(1.1); }
+40%  { transform: rotate(12deg) scale(0.95); }
+60%  { transform: rotate(-8deg) scale(1.05); }
+80%  { transform: rotate(5deg) scale(0.98); }
+100% { transform: rotate(0deg) scale(1); }
+}
+
+.tweak-btn.rolling .die-svg {
+animation: die-shake 0.12s ease-in-out;
+}
+
+.tweak-btn:active { transform: scale(0.88); }
+
+.musician[data-m=“drums”]  .tweak-btn:active { color: var(–accent);  border-color: var(–accent);  background: rgba(200,168,75,0.1); }
+.musician[data-m=“bass”]   .tweak-btn:active { color: var(–accent2); border-color: var(–accent2); background: rgba(75,200,168,0.1); }
+.musician[data-m=“keys”]   .tweak-btn:active { color: var(–accent3); border-color: var(–accent3); background: rgba(200,75,110,0.1); }
+.musician[data-m=“digger”] .tweak-btn:active { color: var(–accent4); border-color: var(–accent4); background: rgba(123,75,200,0.1); }
+
+.tweak-btn.flash {
+color: var(–mc);
+border-color: var(–mc);
+background: rgba(255,255,255,0.05);
+transform: scale(0.88);
+}
+
+/* Key grid */
+.key-grid {
+display: grid;
+grid-template-columns: repeat(12, 1fr);
+gap: 2px;
+width: 100%;
+}
+
+.key-btn {
+background: #1c1c1c;
+border: 1px solid var(–border);
+color: var(–textdim);
+font-family: ‘Share Tech Mono’, monospace;
+font-size: 8px;
+padding: 5px 0;
+cursor: pointer;
+transition: all 0.12s;
+border-radius: 2px;
+letter-spacing: 0;
+}
+
+.key-btn.black {
+background: #111;
+color: #444;
+}
+
+.key-btn.active {
+background: var(–accent);
+border-color: var(–accent);
+color: #000;
+font-weight: bold;
+}
+
+.key-btn:active { transform: scale(0.9); }
+
+/* Mode grid */
+.mode-grid {
+display: grid;
+grid-template-columns: repeat(5, 1fr);
+gap: 2px;
+width: 100%;
+margin-top: 3px;
+}
+
+.mode-btn {
+background: transparent;
+border: 1px solid var(–border);
+color: var(–textdim);
+font-family: ‘VT323’, monospace;
+font-size: 11px;
+padding: 3px 0;
+cursor: pointer;
+transition: all 0.12s;
+border-radius: 2px;
+}
+
+.mode-btn.active {
+background: rgba(200,168,75,0.15);
+border-color: var(–accent);
+color: var(–accent);
+}
+
+.mode-btn:active { transform: scale(0.9); }
+
+/* Global fx row */
+.fx-label {
+font-size: 9px;
+letter-spacing: 0.2em;
+color: var(–textdim);
+text-align: center;
+margin-bottom: 1px;
+}
 </style>
+
 </head>
 <body>
 
 <!-- SPLASH -->
+
 <div id="splash">
   <h1>VON BASEMENT</h1>
   <button id="init-btn" onclick="initAudio()">ENTER</button>
 </div>
 
 <!-- APP -->
+
 <div id="app">
 
   <!-- GLOBAL CONTROLS -->
+
   <div id="global">
     <div id="global-title">— GLOBAL CONTROLS —</div>
     <div class="global-row">
@@ -746,139 +751,142 @@
   </div>
 
   <!-- BAND -->
+
   <div id="band">
 
-    <!-- DRUMS -->
-    <div class="musician" data-m="drums" id="m-drums">
-      <div class="vu-bg"><div class="vu-bar" id="vu-drums" style="height:0%"></div></div>
-      <canvas class="wave-canvas" id="wave-drums"></canvas>
-      <div class="symbol">
-        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Single vertical line with circle — kick drum side view -->
-          <circle cx="22" cy="12" r="7" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="22" y1="19" x2="22" y2="38" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="14" y1="38" x2="30" y2="38" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="16" y1="34" x2="22" y2="38" stroke="currentColor" stroke-width="1"/>
-          <line x1="28" y1="34" x2="22" y2="38" stroke="currentColor" stroke-width="1"/>
-        </svg>
-      </div>
-      <div class="musician-info">
-        <div class="musician-status" id="status-drums">— OFFLINE —</div>
-      </div>
-      <div class="complexity-group">
-        <label>COMPLEXITY</label>
-        <div class="complexity-btns">
-          <button class="cplx-btn active" onclick="setComplexity('drums',1)">I</button>
-          <button class="cplx-btn" onclick="setComplexity('drums',2)">II</button>
-          <button class="cplx-btn" onclick="setComplexity('drums',3)">III</button>
-        </div>
-      </div>
-      <button class="reint-btn" id="reint-drums" onclick="reinterpret('drums')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-drums" onclick="tweakSound('drums')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-drums"></g></svg></button>
-      <button class="play-btn" id="btn-drums" onclick="toggleMusician('drums')">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <polygon id="icon-drums" points="5,2 14,8 5,14" fill="#666"/>
-        </svg>
-      </button>
+```
+<!-- DRUMS -->
+<div class="musician" data-m="drums" id="m-drums">
+  <div class="vu-bg"><div class="vu-bar" id="vu-drums" style="height:0%"></div></div>
+  <canvas class="wave-canvas" id="wave-drums"></canvas>
+  <div class="symbol">
+    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Single vertical line with circle — kick drum side view -->
+      <circle cx="22" cy="12" r="7" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="22" y1="19" x2="22" y2="38" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="14" y1="38" x2="30" y2="38" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="16" y1="34" x2="22" y2="38" stroke="currentColor" stroke-width="1"/>
+      <line x1="28" y1="34" x2="22" y2="38" stroke="currentColor" stroke-width="1"/>
+    </svg>
+  </div>
+  <div class="musician-info">
+    <div class="musician-status" id="status-drums">— OFFLINE —</div>
+  </div>
+  <div class="complexity-group">
+    <label>COMPLEXITY</label>
+    <div class="complexity-btns">
+      <button class="cplx-btn active" onclick="setComplexity('drums',1)">I</button>
+      <button class="cplx-btn" onclick="setComplexity('drums',2)">II</button>
+      <button class="cplx-btn" onclick="setComplexity('drums',3)">III</button>
     </div>
+  </div>
+  <button class="reint-btn" id="reint-drums" onclick="reinterpret('drums')" title="Reinterpret">↻</button>
+  <button class="tweak-btn" id="tweak-drums" onclick="tweakSound('drums')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-drums"></g></svg></button>
+  <button class="play-btn" id="btn-drums" onclick="toggleMusician('drums')">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <polygon id="icon-drums" points="5,2 14,8 5,14" fill="#666"/>
+    </svg>
+  </button>
+</div>
 
-    <!-- BASS -->
-    <div class="musician" data-m="bass" id="m-bass">
-      <div class="vu-bg"><div class="vu-bar" id="vu-bass" style="height:0%"></div></div>
-      <canvas class="wave-canvas" id="wave-bass"></canvas>
-      <div class="symbol">
-        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Omega / wave -->
-          <path d="M8 32 Q8 16 22 16 Q36 16 36 32" stroke="currentColor" stroke-width="1.5" fill="none"/>
-          <line x1="6" y1="32" x2="14" y2="32" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="30" y1="32" x2="38" y2="32" stroke="currentColor" stroke-width="1.5"/>
-        </svg>
-      </div>
-      <div class="musician-info">
-        <div class="musician-status" id="status-bass">— OFFLINE —</div>
-      </div>
-      <div class="complexity-group">
-        <label>COMPLEXITY</label>
-        <div class="complexity-btns">
-          <button class="cplx-btn active" onclick="setComplexity('bass',1)">I</button>
-          <button class="cplx-btn" onclick="setComplexity('bass',2)">II</button>
-          <button class="cplx-btn" onclick="setComplexity('bass',3)">III</button>
-        </div>
-      </div>
-      <button class="reint-btn" id="reint-bass" onclick="reinterpret('bass')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-bass" onclick="tweakSound('bass')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-bass"></g></svg></button>
-      <button class="play-btn" id="btn-bass" onclick="toggleMusician('bass')">
-        <svg width="16" height="16" viewBox="0 0 16 16">
-          <polygon id="icon-bass" points="5,2 14,8 5,14" fill="#666"/>
-        </svg>
-      </button>
+<!-- BASS -->
+<div class="musician" data-m="bass" id="m-bass">
+  <div class="vu-bg"><div class="vu-bar" id="vu-bass" style="height:0%"></div></div>
+  <canvas class="wave-canvas" id="wave-bass"></canvas>
+  <div class="symbol">
+    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Omega / wave -->
+      <path d="M8 32 Q8 16 22 16 Q36 16 36 32" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      <line x1="6" y1="32" x2="14" y2="32" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="30" y1="32" x2="38" y2="32" stroke="currentColor" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <div class="musician-info">
+    <div class="musician-status" id="status-bass">— OFFLINE —</div>
+  </div>
+  <div class="complexity-group">
+    <label>COMPLEXITY</label>
+    <div class="complexity-btns">
+      <button class="cplx-btn active" onclick="setComplexity('bass',1)">I</button>
+      <button class="cplx-btn" onclick="setComplexity('bass',2)">II</button>
+      <button class="cplx-btn" onclick="setComplexity('bass',3)">III</button>
     </div>
+  </div>
+  <button class="reint-btn" id="reint-bass" onclick="reinterpret('bass')" title="Reinterpret">↻</button>
+  <button class="tweak-btn" id="tweak-bass" onclick="tweakSound('bass')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-bass"></g></svg></button>
+  <button class="play-btn" id="btn-bass" onclick="toggleMusician('bass')">
+    <svg width="16" height="16" viewBox="0 0 16 16">
+      <polygon id="icon-bass" points="5,2 14,8 5,14" fill="#666"/>
+    </svg>
+  </button>
+</div>
 
-    <!-- KEYS -->
-    <div class="musician" data-m="keys" id="m-keys">
-      <div class="vu-bg"><div class="vu-bar" id="vu-keys" style="height:0%"></div></div>
-      <canvas class="wave-canvas" id="wave-keys"></canvas>
-      <div class="symbol">
-        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Lightning bolt / single note on staff -->
-          <line x1="10" y1="22" x2="34" y2="22" stroke="currentColor" stroke-width="1"/>
-          <path d="M26 10 L18 22 L26 22 L18 34" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="musician-info">
-        <div class="musician-status" id="status-keys">— OFFLINE —</div>
-      </div>
-      <div class="complexity-group">
-        <label>COMPLEXITY</label>
-        <div class="complexity-btns">
-          <button class="cplx-btn active" onclick="setComplexity('keys',1)">I</button>
-          <button class="cplx-btn" onclick="setComplexity('keys',2)">II</button>
-          <button class="cplx-btn" onclick="setComplexity('keys',3)">III</button>
-        </div>
-      </div>
-      <button class="reint-btn" id="reint-keys" onclick="reinterpret('keys')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-keys" onclick="tweakSound('keys')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-keys"></g></svg></button>
-      <button class="play-btn" id="btn-keys" onclick="toggleMusician('keys')">
-        <svg width="16" height="16" viewBox="0 0 16 16">
-          <polygon id="icon-keys" points="5,2 14,8 5,14" fill="#666"/>
-        </svg>
-      </button>
+<!-- KEYS -->
+<div class="musician" data-m="keys" id="m-keys">
+  <div class="vu-bg"><div class="vu-bar" id="vu-keys" style="height:0%"></div></div>
+  <canvas class="wave-canvas" id="wave-keys"></canvas>
+  <div class="symbol">
+    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Lightning bolt / single note on staff -->
+      <line x1="10" y1="22" x2="34" y2="22" stroke="currentColor" stroke-width="1"/>
+      <path d="M26 10 L18 22 L26 22 L18 34" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="musician-info">
+    <div class="musician-status" id="status-keys">— OFFLINE —</div>
+  </div>
+  <div class="complexity-group">
+    <label>COMPLEXITY</label>
+    <div class="complexity-btns">
+      <button class="cplx-btn active" onclick="setComplexity('keys',1)">I</button>
+      <button class="cplx-btn" onclick="setComplexity('keys',2)">II</button>
+      <button class="cplx-btn" onclick="setComplexity('keys',3)">III</button>
     </div>
+  </div>
+  <button class="reint-btn" id="reint-keys" onclick="reinterpret('keys')" title="Reinterpret">↻</button>
+  <button class="tweak-btn" id="tweak-keys" onclick="tweakSound('keys')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-keys"></g></svg></button>
+  <button class="play-btn" id="btn-keys" onclick="toggleMusician('keys')">
+    <svg width="16" height="16" viewBox="0 0 16 16">
+      <polygon id="icon-keys" points="5,2 14,8 5,14" fill="#666"/>
+    </svg>
+  </button>
+</div>
 
-    <!-- DIGGER -->
-    <div class="musician" data-m="digger" id="m-digger">
-      <div class="vu-bg"><div class="vu-bar" id="vu-digger" style="height:0%"></div></div>
-      <canvas class="wave-canvas" id="wave-digger"></canvas>
-      <div class="symbol">
-        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Spiral — record groove -->
-          <path d="M22 22 
-            m-2 0 a2 2 0 1 1 4 0
-            m-7 0 a7 7 0 1 1 14 0
-            m-11 0 a11 11 0 1 1 22 0" 
-            stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <circle cx="22" cy="22" r="1" fill="currentColor"/>
-        </svg>
-      </div>
-      <div class="musician-info">
-        <div class="musician-status" id="status-digger">— OFFLINE —</div>
-      </div>
-      <div class="complexity-group">
-        <label>DENSITY</label>
-        <div class="complexity-btns">
-          <button class="cplx-btn active" onclick="setComplexity('digger',1)">I</button>
-          <button class="cplx-btn" onclick="setComplexity('digger',2)">II</button>
-          <button class="cplx-btn" onclick="setComplexity('digger',3)">III</button>
-        </div>
-      </div>
-      <button class="reint-btn" id="reint-digger" onclick="reinterpret('digger')" title="Reinterpret">↻</button>
-      <button class="tweak-btn" id="tweak-digger" onclick="tweakSound('digger')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-digger"></g></svg></button>
-      <button class="play-btn" id="btn-digger" onclick="toggleMusician('digger')">
-        <svg width="16" height="16" viewBox="0 0 16 16">
-          <polygon id="icon-digger" points="5,2 14,8 5,14" fill="#666"/>
-        </svg>
-      </button>
+<!-- DIGGER -->
+<div class="musician" data-m="digger" id="m-digger">
+  <div class="vu-bg"><div class="vu-bar" id="vu-digger" style="height:0%"></div></div>
+  <canvas class="wave-canvas" id="wave-digger"></canvas>
+  <div class="symbol">
+    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Spiral — record groove -->
+      <path d="M22 22 
+        m-2 0 a2 2 0 1 1 4 0
+        m-7 0 a7 7 0 1 1 14 0
+        m-11 0 a11 11 0 1 1 22 0" 
+        stroke="currentColor" stroke-width="1.2" fill="none"/>
+      <circle cx="22" cy="22" r="1" fill="currentColor"/>
+    </svg>
+  </div>
+  <div class="musician-info">
+    <div class="musician-status" id="status-digger">— OFFLINE —</div>
+  </div>
+  <div class="complexity-group">
+    <label>DENSITY</label>
+    <div class="complexity-btns">
+      <button class="cplx-btn active" onclick="setComplexity('digger',1)">I</button>
+      <button class="cplx-btn" onclick="setComplexity('digger',2)">II</button>
+      <button class="cplx-btn" onclick="setComplexity('digger',3)">III</button>
     </div>
+  </div>
+  <button class="reint-btn" id="reint-digger" onclick="reinterpret('digger')" title="Reinterpret">↻</button>
+  <button class="tweak-btn" id="tweak-digger" onclick="tweakSound('digger')" title="Randomize Sound"><svg class="die-svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.2"/><g class="die-dots" id="die-digger"></g></svg></button>
+  <button class="play-btn" id="btn-digger" onclick="toggleMusician('digger')">
+    <svg width="16" height="16" viewBox="0 0 16 16">
+      <polygon id="icon-digger" points="5,2 14,8 5,14" fill="#666"/>
+    </svg>
+  </button>
+</div>
+```
 
   </div><!-- /band -->
 </div><!-- /app -->
@@ -1078,6 +1086,11 @@ function setKey(semitone, fromUser = false) {
       userKeyHistory.push(semitone);
       if (userKeyHistory.length > 2) userKeyHistory.shift();
     }
+    // Sync autoJam so it knows where we are
+    autoJam.lastKey = semitone;
+    // Reset phrase counter so bounce starts fresh from here
+    autoJam.measureCount = 0;
+    autoJam.nextChangeMeasure = pickNextChangeMeasure();
     updateKeyToggleBtn();
   }
 }
@@ -1122,6 +1135,10 @@ function setMode(mode, fromUser = false) {
       userModeHistory.push(mode);
       if (userModeHistory.length > 2) userModeHistory.shift();
     }
+    // Sync autoJam so it knows where we are
+    autoJam.lastMode = mode;
+    autoJam.measureCount = 0;
+    autoJam.nextChangeMeasure = pickNextChangeMeasure();
     updateModeToggleBtn();
   }
 }
@@ -1230,21 +1247,46 @@ function pickNextChangeMeasure() {
 function scheduleAutoJamChange(immediate) {
   if (!autoJam.enabled) return;
 
+  // If user has locked both key AND mode, ping-pong both — autoJam does nothing
+  const keyLocked  = userKeyHistory.length >= 2;
+  const modeLocked = userModeHistory.length >= 2;
+
+  if (keyLocked && modeLocked) {
+    // Both locked — bounce key and mode together on the same phrase boundary
+    const newKey  = userKeyHistory[0] === autoJam.lastKey  ? userKeyHistory[1] : userKeyHistory[0];
+    const newMode = userModeHistory[0] === autoJam.lastMode ? userModeHistory[1] : userModeHistory[0];
+    autoJam.lastKey  = newKey;
+    autoJam.lastMode = newMode;
+    autoJam.measureCount = 0;
+    autoJam.nextChangeMeasure = pickNextChangeMeasure();
+    setKey(newKey);
+    setMode(newMode);
+    return;
+  }
+
   // Decide whether to change key, mode, or both
   const r = Math.random();
   let newKey  = autoJam.lastKey;
   let newMode = autoJam.lastMode;
 
   if (r < 0.35) {
-    // Key change only
-    newKey = pickNextKey(autoJam.lastKey);
+    // Key change only — honour lock if set
+    newKey = keyLocked
+      ? (userKeyHistory[0] === autoJam.lastKey ? userKeyHistory[1] : userKeyHistory[0])
+      : pickNextKey(autoJam.lastKey);
   } else if (r < 0.60) {
-    // Mode change only
-    newMode = pickNextMode(autoJam.lastMode);
+    // Mode change only — honour lock if set
+    newMode = modeLocked
+      ? (userModeHistory[0] === autoJam.lastMode ? userModeHistory[1] : userModeHistory[0])
+      : pickNextMode(autoJam.lastMode);
   } else {
-    // Both — big move
-    newKey  = pickNextKey(autoJam.lastKey);
-    newMode = pickNextMode(autoJam.lastMode);
+    // Both
+    newKey  = keyLocked
+      ? (userKeyHistory[0] === autoJam.lastKey ? userKeyHistory[1] : userKeyHistory[0])
+      : pickNextKey(autoJam.lastKey);
+    newMode = modeLocked
+      ? (userModeHistory[0] === autoJam.lastMode ? userModeHistory[1] : userModeHistory[0])
+      : pickNextMode(autoJam.lastMode);
   }
 
   autoJam.lastKey  = newKey;
@@ -3249,5 +3291,6 @@ function visualLoop() {
   });
 }
 </script>
+
 </body>
 </html>
